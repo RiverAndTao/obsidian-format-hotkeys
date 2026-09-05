@@ -409,7 +409,7 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-6 .cm-head
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-strong {
     font-weight: 800 !important;
-    color: var(--bold-color, var(--text-normal));
+    color: var(--typora-bold-color, var(--bold-color, var(--text-normal)));
     -webkit-text-stroke: 0.3px currentColor;
 }
 
