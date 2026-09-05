@@ -1,0 +1,24 @@
+{
+    "name": "obsidian-format-hotkeys",
+    "version": "0.1.0",
+    "description": "快捷键设置标题、加粗、下划线和红色文字",
+    "main": "main.js",
+    "author": "RiverAndTao",
+    "scripts": {
+        "build": "rollup --config rollup.config.js --environment BUILD:production && node scripts/install-plugin.js",
+        "build:dev": "rollup --config rollup.config.js -w"
+    },
+    "devDependencies": {
+        "@codemirror/state": "^6.7.4",
+        "@codemirror/view": "^6.43.11",
+        "@rollup/plugin-commonjs": "^19.0.0",
+        "@rollup/plugin-node-resolve": "^13.0.0",
+        "@rollup/plugin-typescript": "^8.2.1",
+        "@types/node": "^15.12.2",
+        "obsidian": "^0.16.3",
+        "rollup": "^2.51.2",
+        "rollup-plugin-copy": "^3.4.0",
+        "tslib": "^2.3.0",
+        "typescript": "^4.6.3"
+    }
+}

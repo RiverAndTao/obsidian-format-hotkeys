@@ -1,0 +1,8 @@
+{
+    "id": "obsidian-format-hotkeys",
+    "name": "Format Hotkeys",
+    "version": "0.2.0",
+    "minAppVersion": "0.9.12",
+    "description": "快捷键设置标题、加粗、下划线和红色文字",
+    "author": "RiverAndTao"
+}

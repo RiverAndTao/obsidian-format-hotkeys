@@ -1,0 +1,833 @@
+:root {
+    --format-hotkeys-toolbar-bg: rgba(var(--background-secondary-rgb), 0.7);
+    --format-hotkeys-toolbar-icon-size: 18px;
+    --typora-line-height: 1.6;
+    --typora-content-width: 1200px;
+    --typora-line-padding: 0.15em;
+    --typora-list-marker-color: var(--text-muted);
+    --typora-h1-size: 1.48em;
+    --typora-h2-size: 1.26em;
+    --typora-h3-size: 1.12em;
+    --typora-h4-size: 1.04em;
+    --typora-h5-size: 1em;
+    --typora-h6-size: 0.95em;
+    --typora-h1-color: var(--h1-color);
+    --typora-h2-color: var(--h2-color);
+    --typora-h3-color: var(--h3-color);
+    --typora-h4-color: var(--h4-color);
+    --typora-h5-color: var(--h5-color);
+    --typora-h6-color: var(--h6-color);
+    --typora-heading-underline: 1px solid var(--background-modifier-border);
+    --typora-quote-color: var(--text-muted);
+    --typora-link-color: var(--link-color);
+    --typora-inline-code-color: var(--code-normal, var(--text-normal));
+    --typora-active-line-bg: rgba(135, 131, 120, 0.05);
+}
+
+/* ============================================================
+   Typora 显示模式 - 对齐 Typora GitHub 主题的所见即所得风格
+   ============================================================ */
+
+body.typora-mode-active .markdown-source-view.mod-cm6 {
+    --line-height: var(--typora-line-height);
+    --file-line-width: var(--typora-content-width);
+    --h1-size: var(--typora-h1-size);
+    --h2-size: var(--typora-h2-size);
+    --h3-size: var(--typora-h3-size);
+    --h4-size: var(--typora-h4-size);
+    --h5-size: var(--typora-h5-size);
+    --h6-size: var(--typora-h6-size);
+}
+
+/* =====================================================
+   第一部分：隐藏非活跃行的 Markdown 语法符号
+   ===================================================== */
+
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .cm-line:not(.cm-active)
+:is(
+    /* 标题 # */
+    .cm-formatting.cm-formatting-header,
+    /* 粗体 ** 斜体 * */
+    .cm-formatting.cm-formatting-strong,
+    .cm-formatting.cm-formatting-em,
+    /* 删除线 ~~ */
+    .cm-formatting.cm-formatting-strikethrough,
+    /* 行内代码 ` */
+    .cm-formatting.cm-formatting-code.cm-inline-code,
+    /* 代码块 ``` */
+    .cm-formatting.cm-formatting-code-block,
+    /* 高亮 == */
+    .cm-formatting.cm-formatting-highlight,
+    /* 块引用 > */
+    .cm-formatting.cm-formatting-quote,
+    /* 任务列表 [ ] [x] */
+    .cm-formatting.cm-formatting-task,
+    /* 链接 [ ] ( ) 与图片 ![]() */
+    .cm-formatting.cm-formatting-link,
+    .cm-formatting.cm-formatting-link.cm-formatting-link-string,
+    .cm-formatting.cm-formatting-image,
+    .cm-string.cm-url,
+    /* 标签 #tag 中的 # */
+    .cm-formatting.cm-formatting-tag,
+    /* 数学公式 $ */
+    .cm-math.cm-formatting,
+    .cm-formatting.cm-formatting-math
+) {
+    display: none !important;
+}
+
+/* =====================================================
+   第二部分：列表
+   无序列表：隐藏 - * +，保留 Obsidian / Typora 风格 bullet
+   有序列表：完整保留源文本 1.  2.  （数字 + 点 + 空格）
+   ===================================================== */
+
+/* 只隐藏无序列表标记，绝不隐藏 1. 2. */
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .cm-line:not(.cm-active)
+.cm-formatting-list-ul {
+    opacity: 0;
+    width: 0;
+    display: inline-block;
+    overflow: hidden;
+    padding-inline-start: 0 !important;
+    margin-inline-start: 0 !important;
+    color: transparent;
+}
+
+/* 有序列表：保持 1.  2.  原文可见，颜色与 Typora 一致 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-list-ol {
+    display: inline !important;
+    opacity: 1 !important;
+    width: auto !important;
+    overflow: visible !important;
+    color: var(--text-normal);
+    font-weight: 400;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line.cm-line {
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+}
+
+/* 列表层级 bullet（仅无序列表），对齐 Typora 分级圆点 */
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-1, .HyperMD-list-line-5) .list-bullet:after {
+    height: 5.5px;
+    width: 5.5px;
+    border-radius: 50%;
+    background-color: var(--typora-list-marker-color);
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-2, .HyperMD-list-line-6) .list-bullet:after {
+    height: 4.5px;
+    width: 4.5px;
+    background-color: transparent;
+    border: 1.5px solid var(--typora-list-marker-color);
+    border-radius: 50%;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-3, .HyperMD-list-line-7) .list-bullet:after {
+    height: 5px;
+    width: 5px;
+    border-radius: 0;
+    background-color: var(--typora-list-marker-color);
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-4, .HyperMD-list-line-8) .list-bullet:after {
+    height: 4px;
+    width: 4px;
+    background-color: transparent;
+    border: 1.5px solid var(--typora-list-marker-color);
+    border-radius: 0;
+}
+
+/* 有序列表行不要画 bullet，避免和 1. 2. 叠在一起 */
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line:has(.cm-formatting-list-ol) .list-bullet,
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line:has(.cm-formatting-list-ol) .list-bullet:after {
+    display: none !important;
+}
+
+/*
+ * Typora 风格列表层级（纯显示，不改源码）：
+ * - 一级 1. / - 作为基准
+ * - 嵌套子项（含缩进后的下级列表）每层约多 1 个 tab 的可视缩进
+ * - 软换行时正文对齐到标记右侧，增强层级感
+ */
+body.typora-mode-active .markdown-source-view.mod-cm6 {
+    --typora-list-indent: 2.5em;
+    --list-indent: var(--typora-list-indent);
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .list-bullet {
+    min-width: 1.4em;
+    display: inline-block;
+    text-align: center;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-list-ol {
+    margin-inline-end: 0.35em;
+}
+
+/* 嵌套缩进槽：每一级固定约 1 tab 宽 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent {
+    display: inline-block;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent .cm-hmd-list-indent-1,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent .cm-hmd-list-indent-2,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent .cm-hmd-list-indent-3,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent .cm-hmd-list-indent-4,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent .cm-hmd-list-indent-5,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent .cm-hmd-list-indent-6,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent .cm-hmd-list-indent-7,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent .cm-hmd-list-indent-8 {
+    display: inline-block !important;
+    width: var(--typora-list-indent) !important;
+    min-width: var(--typora-list-indent) !important;
+}
+
+/* 按列表层级累计左内边距，子级明显比父级更靠右 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-1 {
+    padding-inline-start: 0.25em !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-2 {
+    padding-inline-start: calc(var(--typora-list-indent) * 0.15) !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-3 {
+    padding-inline-start: calc(var(--typora-list-indent) * 0.15) !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-4,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-5,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-6,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-7,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-8 {
+    padding-inline-start: calc(var(--typora-list-indent) * 0.15) !important;
+}
+
+/* 源码 Tab 在 Typora 模式下按 4 空格宽度显示 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line {
+    tab-size: 4;
+}
+
+/*
+ * 括号编号列表 (1) / （1）：课本常用写法，按有序列表同样做层级显示
+ * - 条目行：与 1. 类似
+ * - 条目下方正文：再缩进约 1 tab
+ */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.typora-paren-list-item {
+    padding-inline-start: 0.25em !important;
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .typora-paren-list-marker {
+    color: var(--typora-list-marker-color, var(--text-muted));
+    font-weight: 500;
+    margin-inline-end: 0.35em;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.typora-paren-list-body {
+    padding-inline-start: var(--typora-list-indent, 2.5em) !important;
+    padding-top: 0.15em;
+    padding-bottom: 0.15em;
+}
+
+/* =====================================================
+   第三部分：标题（字号略小于上一版，并避免行/行内双重放大）
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-header {
+    padding-bottom: 0.25rem !important;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header .cm-header {
+    font-size: inherit !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-1 .cm-header {
+    color: var(--typora-h1-color) !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-2 .cm-header {
+    color: var(--typora-h2-color) !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-3 .cm-header {
+    color: var(--typora-h3-color) !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-4 .cm-header {
+    color: var(--typora-h4-color) !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-5 .cm-header {
+    color: var(--typora-h5-color) !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-6 .cm-header {
+    color: var(--typora-h6-color) !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-header-1,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-header-1 {
+    font-size: var(--typora-h1-size) !important;
+    color: var(--typora-h1-color) !important;
+    font-weight: 700;
+    margin-top: 1.1em;
+    margin-bottom: 0.55em;
+    line-height: 1.25;
+    padding-bottom: 0.25em;
+    border-bottom: var(--typora-heading-underline);
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-header-2,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-header-2 {
+    font-size: var(--typora-h2-size) !important;
+    color: var(--typora-h2-color) !important;
+    font-weight: 700;
+    margin-top: 1em;
+    margin-bottom: 0.5em;
+    line-height: 1.3;
+    padding-bottom: 0.2em;
+    border-bottom: var(--typora-heading-underline);
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-header-3,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-header-3 {
+    font-size: var(--typora-h3-size) !important;
+    color: var(--typora-h3-color) !important;
+    font-weight: 600;
+    margin-top: 0.85em;
+    margin-bottom: 0.4em;
+    line-height: 1.4;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-header-4,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-header-4 {
+    font-size: var(--typora-h4-size) !important;
+    color: var(--typora-h4-color) !important;
+    font-weight: 600;
+    margin-top: 0.75em;
+    margin-bottom: 0.35em;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-header-5,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-header-5 {
+    font-size: var(--typora-h5-size) !important;
+    color: var(--typora-h5-color) !important;
+    font-weight: 600;
+    margin-top: 0.7em;
+    margin-bottom: 0.3em;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-header-6,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-header-6 {
+    font-size: var(--typora-h6-size) !important;
+    color: var(--typora-h6-color) !important;
+    font-weight: 600;
+    margin-top: 0.7em;
+    margin-bottom: 0.3em;
+}
+
+/* 行内标题文本继承行字号，避免 1.48 × 1.48 叠乘 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-1 .cm-header-1,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-2 .cm-header-2,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-3 .cm-header-3,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-4 .cm-header-4,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-5 .cm-header-5,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-header-6 .cm-header-6 {
+    font-size: inherit !important;
+    margin: 0;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+/* =====================================================
+   第四部分：粗体 / 斜体 / 删除线 / 高亮
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-strong {
+    font-weight: 800 !important;
+    color: var(--bold-color, var(--text-normal));
+    -webkit-text-stroke: 0.3px currentColor;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-em {
+    font-style: italic;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-strikethrough {
+    text-decoration: line-through;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-highlight {
+    background: linear-gradient(transparent 60%, rgba(255, 230, 0, 0.55) 60%);
+    padding: 0 0.1em;
+}
+
+/* =====================================================
+   第五部分：行内代码（Typora GitHub：浅底 + 细边框，非红色）
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+.cm-inline-code:not(.cm-formatting) {
+    background-color: var(--code-background);
+    color: var(--typora-inline-code-color);
+    padding: 0.15em 0.35em;
+    border-radius: 3px;
+    font-size: 0.9em;
+    font-family: var(--font-monospace);
+    border: 1px solid var(--background-modifier-border);
+}
+
+/* =====================================================
+   第六部分：链接
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-link.cm-link,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-internal-link,
+body.typora-mode-active .markdown-source-view.mod-cm6 .internal-link {
+    color: var(--typora-link-color);
+    text-decoration: none;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-link.cm-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .external-link {
+    background-image: none !important;
+    padding-right: 0 !important;
+}
+
+/* =====================================================
+   第七部分：块引用（只装饰整行，不把行内 span 变成 block）
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote {
+    color: var(--typora-quote-color);
+    border-left: 4px solid var(--background-modifier-border);
+    padding-left: 15px !important;
+    padding-right: 0.5em;
+    margin-left: 0;
+    text-indent: 0 !important;
+    padding-inline-start: 15px !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-quote {
+    color: var(--typora-quote-color);
+}
+
+/* =====================================================
+   第八部分：代码块
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+.cm-line:not(.cm-active).HyperMD-codeblock-begin,
+body.typora-mode-active .markdown-source-view.mod-cm6
+.cm-line:not(.cm-active).HyperMD-codeblock-end {
+    opacity: 0.3;
+    font-size: 0.8em;
+    color: var(--text-muted);
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock {
+    background-color: var(--code-background);
+    padding-left: 1em !important;
+    padding-right: 1em;
+    font-family: var(--font-monospace);
+    font-size: 0.9em;
+    line-height: 1.45;
+    text-indent: 0 !important;
+    padding-inline-start: 1em !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin {
+    margin-top: 0.8em;
+    border-radius: 3px 3px 0 0;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-end {
+    margin-bottom: 0.8em;
+    border-radius: 0 0 3px 3px;
+}
+
+/* =====================================================
+   第九部分：数学公式
+   ===================================================== */
+
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
+.cm-line:not(.cm-active) .cm-math.cm-formatting {
+    display: none;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-math {
+    font-family: "Cambria Math", "Latin Modern Math", "STIX Two Math", var(--font-text);
+    font-size: 1.02em;
+}
+
+/* =====================================================
+   第十部分：标签
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hashtag {
+    color: var(--text-muted);
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-size: 0.95em;
+    font-weight: 400;
+}
+
+/* =====================================================
+   第十一部分：水平线
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hr {
+    border: none;
+    height: 2px;
+    background-color: var(--background-modifier-border);
+    margin: 1em 0;
+}
+
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
+.cm-line:not(.cm-active) .cm-hr.cm-formatting {
+    opacity: 0;
+}
+
+/* =====================================================
+   第十二部分：任务列表
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-task-marker.cm-task-marker::after {
+    content: none;
+}
+
+/* =====================================================
+   第十三部分：表格
+   ===================================================== */
+
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
+.cm-line:not(.cm-active) .cm-formatting.cm-formatting-table {
+    opacity: 0.25;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-table-row {
+    font-size: 0.95em;
+    line-height: 1.5;
+}
+
+/* =====================================================
+   第十四部分：段落间距
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line {
+    padding-top: var(--typora-line-padding);
+    padding-bottom: var(--typora-line-padding);
+}
+
+/* =====================================================
+   第十五部分：活跃行（编辑时露出语法，背景尽量克制）
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-active {
+    background-color: var(--typora-active-line-bg);
+    border-radius: 3px;
+}
+
+/* =====================================================
+   第十六部分：内容宽度
+   上一版 1080px，这里略增到 1200px（对齐 Typora 大屏上限），
+   同时覆盖可读行宽，避免仍被 --file-line-width 卡住。
+   ===================================================== */
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-content,
+body.typora-mode-active .markdown-source-view.mod-cm6.is-readable-line-width .cm-sizer,
+body.typora-mode-active .markdown-source-view.mod-cm6.is-readable-line-width .cm-content {
+    max-width: var(--typora-content-width);
+    margin-left: auto;
+    margin-right: auto;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-content {
+    padding-left: 2em;
+    padding-right: 2em;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-scroller {
+    padding-top: 1.25em;
+}
+
+/* YAML / frontmatter：弱化，接近 Typora 元信息块 */
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.cm-hmd-frontmatter, .HyperMD-frontmatter, .cm-line.cm-frontmatter) {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    font-family: var(--font-monospace);
+}
+
+/* Callout 保持左侧色条，文字跟正文 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-callout,
+body.typora-mode-active .markdown-source-view.mod-cm6 .callout {
+    border-radius: 4px;
+}
+
+/* 脚注标记弱化 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-footref,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-footref {
+    color: var(--typora-link-color);
+    font-size: 0.85em;
+    vertical-align: super;
+}
+
+/* Typora 模式下的工具栏按钮高亮状态 */
+.format-hotkeys-toolbar-btn.typora-mode-active {
+    background-color: var(--interactive-accent) !important;
+    color: var(--text-on-accent) !important;
+}
+
+.format-hotkeys-toolbar-btn.typora-mode-active:hover {
+    background-color: var(--interactive-accent-hover) !important;
+}
+
+.markdown-source-view:has(.format-hotkeys-toolbar) {
+    position: relative;
+}
+
+.format-hotkeys-toolbar {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--layer-popover);
+    display: flex;
+    align-items: center;
+    gap: calc(var(--format-hotkeys-toolbar-icon-size) / 6);
+    padding: calc(var(--format-hotkeys-toolbar-icon-size) / 4);
+    background-color: var(--format-hotkeys-toolbar-bg);
+    border-radius: var(--radius-m);
+    user-select: none;
+    box-shadow: var(--shadow-s);
+    transition: 100ms cubic-bezier(0.92, -0.53, 0.65, 1.21);
+}
+
+.format-hotkeys-toolbar-btn {
+    margin: 2px;
+    border: none;
+    display: flex;
+    align-items: center;
+    cursor: default;
+    padding: 5px 10px;
+    box-shadow: none;
+    border-radius: var(--radius-s);
+    font-size: var(--font-ui-small);
+    color: var(--text-normal);
+    background-color: var(--background-primary-alt);
+    white-space: nowrap;
+}
+
+.format-hotkeys-toolbar-btn:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.format-hotkeys-lang-btn {
+    min-width: 3em;
+    font-family: var(--font-monospace);
+}
+
+.format-hotkeys-more-btn {
+    padding: 5px 12px;
+    font-weight: bold;
+    letter-spacing: 0.05em;
+}
+
+.format-hotkeys-order-desc {
+    color: var(--text-muted);
+    margin-bottom: 1em;
+}
+
+.format-hotkeys-order-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 1em;
+}
+
+.format-hotkeys-order-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: var(--radius-s);
+    background-color: var(--background-secondary);
+}
+
+.format-hotkeys-order-label {
+    font-size: var(--font-ui-medium);
+}
+
+.format-hotkeys-order-controls {
+    display: flex;
+    gap: 4px;
+}
+
+.format-hotkeys-order-btn {
+    border: none;
+    border-radius: var(--radius-s);
+    padding: 2px 8px;
+    background-color: var(--background-primary-alt);
+    color: var(--text-normal);
+    cursor: default;
+}
+
+.format-hotkeys-order-btn:hover:not(:disabled) {
+    background-color: var(--background-modifier-hover);
+}
+
+.format-hotkeys-order-btn:disabled {
+    opacity: 0.35;
+}
+
+.format-hotkeys-lang-input {
+    width: 100%;
+    margin: 0.5em 0 1em;
+    padding: 6px 8px;
+}
+
+.format-hotkeys-lang-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.format-hotkeys-typora-intro {
+    margin-bottom: 0.8em;
+}
+
+.format-hotkeys-typora-subtitle {
+    margin-top: 1.4em;
+    margin-bottom: 0.4em;
+}
+
+.format-hotkeys-typora-value {
+    min-width: 4.6em;
+    text-align: right;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--font-ui-small);
+}
+
+.format-hotkeys-typora-preview {
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    padding: 14px 18px 16px;
+    margin: 10px 0 18px;
+    line-height: var(--typora-line-height, 1.6);
+}
+
+.format-hotkeys-typora-preview-label {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    margin-bottom: 0.7em;
+    letter-spacing: 0.04em;
+}
+
+.format-hotkeys-typora-preview-h {
+    margin: 0.35em 0;
+    line-height: 1.35;
+}
+
+.format-hotkeys-typora-preview-h1 {
+    font-size: var(--typora-h1-size);
+    color: var(--typora-h1-color);
+    font-weight: 700;
+    padding-bottom: 0.2em;
+    border-bottom: var(--typora-heading-underline);
+}
+
+.format-hotkeys-typora-preview-h2 {
+    font-size: var(--typora-h2-size);
+    color: var(--typora-h2-color);
+    font-weight: 700;
+    padding-bottom: 0.15em;
+    border-bottom: var(--typora-heading-underline);
+}
+
+.format-hotkeys-typora-preview-h3 {
+    font-size: var(--typora-h3-size);
+    color: var(--typora-h3-color);
+    font-weight: 600;
+}
+
+.format-hotkeys-typora-preview-h4 {
+    font-size: var(--typora-h4-size);
+    color: var(--typora-h4-color);
+    font-weight: 600;
+}
+
+.format-hotkeys-typora-preview-h5 {
+    font-size: var(--typora-h5-size);
+    color: var(--typora-h5-color);
+    font-weight: 600;
+}
+
+.format-hotkeys-typora-preview-h6 {
+    font-size: var(--typora-h6-size);
+    color: var(--typora-h6-color);
+    font-weight: 600;
+}
+
+.format-hotkeys-typora-preview-quote {
+    color: var(--typora-quote-color);
+    border-left: 4px solid var(--background-modifier-border);
+    padding: 0.2em 0 0.2em 12px;
+    margin: 0.7em 0;
+}
+
+.format-hotkeys-typora-preview-body {
+    margin-top: 0.4em;
+}
+
+.format-hotkeys-typora-preview-body code {
+    background-color: var(--code-background);
+    color: var(--typora-inline-code-color);
+    padding: 0.12em 0.35em;
+    border-radius: 3px;
+    font-size: 0.9em;
+    border: 1px solid var(--background-modifier-border);
+}
+
+.format-hotkeys-typora-preview-body a {
+    color: var(--typora-link-color);
+    text-decoration: none;
+}
+
+.modal.format-hotkeys-typora-config-modal {
+    width: 46rem;
+    max-width: 94vw;
+}
+
+.modal.format-hotkeys-typora-config-modal .modal-content {
+    max-height: 72vh;
+    overflow-y: auto;
+}
