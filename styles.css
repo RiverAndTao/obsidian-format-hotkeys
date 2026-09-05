@@ -104,6 +104,12 @@ body.typora-mode-active .markdown-source-view.mod-cm6
     padding-top: 0.2em;
     padding-bottom: 0.2em;
     line-height: var(--typora-line-height, 1.6);
+    /*
+     * Obsidian 默认给列表行设置负 text-indent，用于把源码标记挂到左侧。
+     * 标记现已由插件自行绘制，必须清零，否则会抵消下面的层级 padding，
+     * 表现为圆点出现了，但列表正文仍和普通段落同列。
+     */
+    text-indent: 0 !important;
 }
 
 /*
