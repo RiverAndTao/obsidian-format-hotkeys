@@ -84,10 +84,11 @@ body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .cm-lin
    ===================================================== */
 
 body.typora-mode-active .markdown-source-view.mod-cm6 {
-    --typora-ul-pad: 2em;
-    --typora-ul-marker: 1.15em;
-    --typora-ul-gap: 0.45em;
-    --typora-list-step: calc(var(--typora-ul-marker) + var(--typora-ul-gap));
+    /* 截图比例：一级圆点约在正文左缘 + 0.5em，正文约在 + 1.25em */
+    --typora-ul-pad: 1.25em;
+    --typora-ul-marker: 0.75em;
+    --typora-ul-gap: 0.25em;
+    --typora-list-step: 1em;
     --typora-list-indent: var(--typora-list-step);
     --list-indent: var(--typora-list-step);
     --typora-list-marker-color: var(--text-normal);
@@ -149,40 +150,68 @@ body.typora-mode-active .markdown-source-view.mod-cm6
 }
 
 /*
- * 非编辑行：把「-」变成实心圆点（不依赖 .list-bullet）
- * 编辑行仍显示真实「-」，便于改源码
+ * 所有列表行（包括光标行）：把源码「- 」原位替换成圆点。
+ * 不能将 font-size 设为 0，否则以 em 定义的伪元素也会缩成 0。
  */
-body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
-.cm-line:not(.cm-active) .cm-formatting-list-ul {
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line .cm-formatting-list-ul {
     display: inline-block !important;
     position: relative !important;
     width: var(--typora-ul-marker) !important;
     min-width: var(--typora-ul-marker) !important;
     max-width: var(--typora-ul-marker) !important;
     height: 1em !important;
+    margin-inline-start: calc(-1 * (var(--typora-ul-marker) + var(--typora-ul-gap))) !important;
     margin-inline-end: var(--typora-ul-gap) !important;
     padding: 0 !important;
     overflow: hidden !important;
     color: transparent !important;
-    font-size: 0 !important;
-    line-height: 0 !important;
+    font-size: inherit !important;
+    line-height: 1 !important;
+    text-indent: -9999px !important;
     vertical-align: middle !important;
     letter-spacing: 0 !important;
 }
 
-body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
-.cm-line:not(.cm-active) .cm-formatting-list-ul::before {
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line .cm-formatting-list-ul::before {
     content: "" !important;
     display: block !important;
     position: absolute !important;
     top: 50% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
-    width: 0.32em !important;
-    height: 0.32em !important;
+    width: 5.5px !important;
+    height: 5.5px !important;
     border-radius: 50% !important;
     background-color: var(--typora-list-marker-color) !important;
     border: none !important;
+}
+
+/* Typora / 截图层级：一级实心圆、二级空心圆、三级实心方块 */
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-2, .HyperMD-list-line-6) .cm-formatting-list-ul::before {
+    width: 5px !important;
+    height: 5px !important;
+    background-color: transparent !important;
+    border: 1.25px solid var(--typora-list-marker-color) !important;
+    border-radius: 50% !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-3, .HyperMD-list-line-7) .cm-formatting-list-ul::before {
+    width: 5px !important;
+    height: 5px !important;
+    border-radius: 0 !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-4, .HyperMD-list-line-8) .cm-formatting-list-ul::before {
+    width: 4.5px !important;
+    height: 4.5px !important;
+    background-color: transparent !important;
+    border: 1.25px solid var(--typora-list-marker-color) !important;
+    border-radius: 0 !important;
 }
 
 /* 避免 Obsidian 自带 list-bullet 与上面圆点叠两个 */
@@ -226,35 +255,35 @@ body.typora-mode-active .markdown-source-view.mod-cm6
 
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line-1:has(.cm-formatting-list-ol) {
-    padding-inline-start: 0.5em !important;
+    padding-inline-start: var(--typora-ul-pad) !important;
 }
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line-2:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(0.5em + var(--typora-list-step)) !important;
+    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step)) !important;
 }
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line-3:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(0.5em + var(--typora-list-step) * 2) !important;
+    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 2) !important;
 }
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line-4:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(0.5em + var(--typora-list-step) * 3) !important;
+    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 3) !important;
 }
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line-5:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(0.5em + var(--typora-list-step) * 4) !important;
+    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 4) !important;
 }
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line-6:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(0.5em + var(--typora-list-step) * 5) !important;
+    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 5) !important;
 }
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line-7:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(0.5em + var(--typora-list-step) * 6) !important;
+    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 6) !important;
 }
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line-8:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(0.5em + var(--typora-list-step) * 7) !important;
+    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 7) !important;
 }
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line {
