@@ -13,6 +13,8 @@ export interface TyporaStyleSettings {
     headingUnderline: boolean;
     highlightActiveLine: boolean;
     headings: Record<HeadingLevel, TyporaHeadingStyle>;
+    /** 空=跟随主题；有值时覆盖浅色模式整站背景（侧栏/编辑区/标题栏） */
+    backgroundColor: string;
     quoteColor: string;
     linkColor: string;
     inlineCodeColor: string;
@@ -45,6 +47,7 @@ export const DEFAULT_TYPORA_STYLE: TyporaStyleSettings = {
         5: { size: 1.0, color: "" },
         6: { size: 0.95, color: "" },
     },
+    backgroundColor: "",
     quoteColor: "",
     linkColor: "",
     inlineCodeColor: "",
@@ -171,6 +174,27 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-header.cm-header-${lev
     }).join("\n");
 }
 
+/** 浅色模式整站背景：主色 + 侧栏等次级面略加深 */
+function backgroundOverrideCss(style: TyporaStyleSettings): string {
+    const bg = style.backgroundColor?.trim();
+    if (!bg) {
+        return "";
+    }
+    return `
+body.theme-light {
+    --background-primary: ${bg} !important;
+    --background-primary-alt: color-mix(in srgb, ${bg} 92%, #000 8%) !important;
+    --background-secondary: color-mix(in srgb, ${bg} 86%, #000 14%) !important;
+    --background-secondary-alt: color-mix(in srgb, ${bg} 80%, #000 20%) !important;
+    --titlebar-background: ${bg} !important;
+    --titlebar-background-focused: ${bg} !important;
+    --modal-background: ${bg} !important;
+}
+.format-hotkeys-typora-preview {
+    background: ${bg} !important;
+}`;
+}
+
 export function applyTyporaStyleVars(el: HTMLElement, style: TyporaStyleSettings): void {
     writeTyporaVars(el, style);
     if (document.documentElement !== el) {
@@ -183,7 +207,7 @@ export function applyTyporaStyleVars(el: HTMLElement, style: TyporaStyleSettings
         tag.id = TYPORA_RUNTIME_STYLE_ID;
         document.head.appendChild(tag);
     }
-    tag.textContent = headingColorOverrideCss(style);
+    tag.textContent = [backgroundOverrideCss(style), headingColorOverrideCss(style)].join("\n");
 }
 
 export function clearTyporaStyleVars(el: HTMLElement): void {

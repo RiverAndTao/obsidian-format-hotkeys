@@ -119,7 +119,17 @@ export class TyporaSettingsPanel {
             this.addHeadingStyleSetting(containerEl, level);
         }
 
-        containerEl.createEl("h4", { text: "其他颜色", cls: "format-hotkeys-typora-subtitle" });
+        containerEl.createEl("h4", { text: "界面与颜色", cls: "format-hotkeys-typora-subtitle" });
+
+        this.addOptionalColorSetting(containerEl, {
+            name: "浅色模式背景",
+            desc: "覆盖 Obsidian 整站背景（编辑区、侧栏、标题栏）。浅色太刺眼时可调成浅灰/米色；重置则恢复主题默认。深色模式不受影响。",
+            getValue: () => this.plugin.settings.typora.backgroundColor,
+            setValue: (value) => {
+                this.plugin.settings.typora.backgroundColor = value;
+            },
+            fallbackVar: "--background-primary",
+        });
 
         this.addOptionalColorSetting(containerEl, {
             name: "引用文字颜色",

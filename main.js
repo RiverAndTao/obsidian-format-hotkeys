@@ -398,6 +398,7 @@ const DEFAULT_TYPORA_STYLE = {
         5: { size: 1.0, color: "" },
         6: { size: 0.95, color: "" },
     },
+    backgroundColor: "",
     quoteColor: "",
     linkColor: "",
     inlineCodeColor: "",
@@ -501,6 +502,27 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-header.cm-header-${lev
 }`;
     }).join("\n");
 }
+/** 浅色模式整站背景：主色 + 侧栏等次级面略加深 */
+function backgroundOverrideCss(style) {
+    var _a;
+    const bg = (_a = style.backgroundColor) === null || _a === void 0 ? void 0 : _a.trim();
+    if (!bg) {
+        return "";
+    }
+    return `
+body.theme-light {
+    --background-primary: ${bg} !important;
+    --background-primary-alt: color-mix(in srgb, ${bg} 92%, #000 8%) !important;
+    --background-secondary: color-mix(in srgb, ${bg} 86%, #000 14%) !important;
+    --background-secondary-alt: color-mix(in srgb, ${bg} 80%, #000 20%) !important;
+    --titlebar-background: ${bg} !important;
+    --titlebar-background-focused: ${bg} !important;
+    --modal-background: ${bg} !important;
+}
+.format-hotkeys-typora-preview {
+    background: ${bg} !important;
+}`;
+}
 function applyTyporaStyleVars(el, style) {
     writeTyporaVars(el, style);
     if (document.documentElement !== el) {
@@ -512,7 +534,7 @@ function applyTyporaStyleVars(el, style) {
         tag.id = TYPORA_RUNTIME_STYLE_ID;
         document.head.appendChild(tag);
     }
-    tag.textContent = headingColorOverrideCss(style);
+    tag.textContent = [backgroundOverrideCss(style), headingColorOverrideCss(style)].join("\n");
 }
 function clearTyporaStyleVars(el) {
     var _a;
@@ -672,7 +694,16 @@ class TyporaSettingsPanel {
         for (const level of HEADING_LEVELS) {
             this.addHeadingStyleSetting(containerEl, level);
         }
-        containerEl.createEl("h4", { text: "其他颜色", cls: "format-hotkeys-typora-subtitle" });
+        containerEl.createEl("h4", { text: "界面与颜色", cls: "format-hotkeys-typora-subtitle" });
+        this.addOptionalColorSetting(containerEl, {
+            name: "浅色模式背景",
+            desc: "覆盖 Obsidian 整站背景（编辑区、侧栏、标题栏）。浅色太刺眼时可调成浅灰/米色；重置则恢复主题默认。深色模式不受影响。",
+            getValue: () => this.plugin.settings.typora.backgroundColor,
+            setValue: (value) => {
+                this.plugin.settings.typora.backgroundColor = value;
+            },
+            fallbackVar: "--background-primary",
+        });
         this.addOptionalColorSetting(containerEl, {
             name: "引用文字颜色",
             desc: "块引用 > 的文字颜色",

@@ -4,7 +4,7 @@
     --typora-line-height: 1.6;
     --typora-content-width: 1200px;
     --typora-line-padding: 0.15em;
-    --typora-list-marker-color: var(--text-muted);
+    --typora-list-marker-color: var(--text-normal);
     --typora-h1-size: 1.48em;
     --typora-h2-size: 1.26em;
     --typora-h3-size: 1.12em;
@@ -77,24 +77,32 @@ body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .cm-lin
 }
 
 /* =====================================================
-   第二部分：列表
-   无序列表：隐藏 - * +，保留 Obsidian / Typora 风格 bullet
-   有序列表：完整保留源文本 1.  2.  （数字 + 点 + 空格）
+   第二部分：列表（一比一复刻 Typora 圆点与间距）
+   Typora 默认：ul/ol padding-left ≈ 40px；标记用正文色；
+   一级 disc ●，二级 circle ○；子圆点对齐父项正文起点。
+   有序列表：完整保留源文本 1.  2.
    ===================================================== */
 
-/* 只隐藏无序列表标记，绝不隐藏 1. 2. */
-body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .cm-line:not(.cm-active)
-.cm-formatting-list-ul {
-    opacity: 0;
-    width: 0;
-    display: inline-block;
-    overflow: hidden;
-    padding-inline-start: 0 !important;
-    margin-inline-start: 0 !important;
-    color: transparent;
+body.typora-mode-active .markdown-source-view.mod-cm6 {
+    /* Typora 内置 / 导出常见值：padding-left: 40px */
+    --typora-ul-pad: 40px;
+    /* 与 Typora 常见 ::before { left: -1.1em } 一致 */
+    --typora-ul-marker: 1.1em;
+    --typora-ul-gap: 0.3em;
+    /* 嵌套一步 ≈ 标记槽，使二级空心圆落在一级正文下 */
+    --typora-list-indent: 1.1em;
+    --list-indent: var(--typora-list-indent);
+    /* Typora 圆点接近正文色，不是 muted 灰 */
+    --typora-list-marker-color: var(--text-normal);
 }
 
-/* 有序列表：保持 1.  2.  原文可见，颜色与 Typora 一致 */
+/* 非编辑行：去掉 - * +，不占位 */
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .cm-line:not(.cm-active)
+.cm-formatting-list-ul {
+    display: none !important;
+}
+
+/* 有序列表：保持 1.  2.  原文可见 */
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-list-ol {
     display: inline !important;
     opacity: 1 !important;
@@ -102,50 +110,18 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-list-ol {
     overflow: visible !important;
     color: var(--text-normal);
     font-weight: 400;
+    margin-inline-end: 0.35em;
 }
 
+/* Typora 列表项间距主要来自行高，不做额外放大/压扁 */
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line.cm-line {
-    padding-top: 0.2rem;
-    padding-bottom: 0.2rem;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: var(--typora-line-height, 1.6);
 }
 
-/* 列表层级 bullet（仅无序列表），对齐 Typora 分级圆点 */
-body.typora-mode-active .markdown-source-view.mod-cm6
-:is(.HyperMD-list-line-1, .HyperMD-list-line-5) .list-bullet:after {
-    height: 5.5px;
-    width: 5.5px;
-    border-radius: 50%;
-    background-color: var(--typora-list-marker-color);
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6
-:is(.HyperMD-list-line-2, .HyperMD-list-line-6) .list-bullet:after {
-    height: 4.5px;
-    width: 4.5px;
-    background-color: transparent;
-    border: 1.5px solid var(--typora-list-marker-color);
-    border-radius: 50%;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6
-:is(.HyperMD-list-line-3, .HyperMD-list-line-7) .list-bullet:after {
-    height: 5px;
-    width: 5px;
-    border-radius: 0;
-    background-color: var(--typora-list-marker-color);
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6
-:is(.HyperMD-list-line-4, .HyperMD-list-line-8) .list-bullet:after {
-    height: 4px;
-    width: 4px;
-    background-color: transparent;
-    border: 1.5px solid var(--typora-list-marker-color);
-    border-radius: 0;
-}
-
-/* 有序列表行不要画 bullet，避免和 1. 2. 叠在一起 */
+/* 有序列表行不要画 bullet */
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line:has(.cm-formatting-list-ol) .list-bullet,
 body.typora-mode-active .markdown-source-view.mod-cm6
@@ -154,27 +130,83 @@ body.typora-mode-active .markdown-source-view.mod-cm6
 }
 
 /*
- * Typora 风格列表层级（纯显示，不改源码）：
- * - 一级 1. / - 作为基准
- * - 嵌套子项（含缩进后的下级列表）每层约多 1 个 tab 的可视缩进
- * - 软换行时正文对齐到标记右侧，增强层级感
+ * 无序列表：各级共用 40px 左边距（Typora ul padding）
+ * 嵌套只靠 cm-hmd-list-indent（每级 1.1em）
  */
-body.typora-mode-active .markdown-source-view.mod-cm6 {
-    --typora-list-indent: 2.5em;
-    --list-indent: var(--typora-list-indent);
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line:has(.cm-formatting-list-ul),
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line:has(.list-bullet):not(:has(.cm-formatting-list-ol)) {
+    padding-inline-start: var(--typora-ul-pad) !important;
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .list-bullet {
-    min-width: 1.4em;
-    display: inline-block;
+/* 圆点悬挂在正文左侧（对齐 Typora list-style outside） */
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line:has(.cm-formatting-list-ul) .list-bullet,
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line:has(.list-bullet):not(:has(.cm-formatting-list-ol)) .list-bullet {
+    display: inline-block !important;
+    position: relative;
+    width: var(--typora-ul-marker) !important;
+    min-width: var(--typora-ul-marker) !important;
+    margin-inline-start: calc(-1 * var(--typora-ul-marker)) !important;
+    margin-inline-end: var(--typora-ul-gap) !important;
     text-align: center;
+    vertical-align: middle;
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-list-ol {
-    margin-inline-end: 0.35em;
+/*
+ * 分级圆点尺寸贴近 Chromium/Typora 原生 disc/circle
+ * （约 0.35em @ 16px ≈ 5.6px；空心圆描边略细）
+ */
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line:has(.cm-formatting-list-ul) .list-bullet:after,
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line:has(.list-bullet):not(:has(.cm-formatting-list-ol)) .list-bullet:after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-sizing: border-box;
 }
 
-/* 嵌套缩进槽：每一级固定约 1 tab 宽 */
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-1, .HyperMD-list-line-5) .list-bullet:after {
+    height: 0.35em;
+    width: 0.35em;
+    border-radius: 50%;
+    background-color: var(--typora-list-marker-color);
+    border: none;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-2, .HyperMD-list-line-6) .list-bullet:after {
+    height: 0.34em;
+    width: 0.34em;
+    background-color: transparent;
+    border: 1.25px solid var(--typora-list-marker-color);
+    border-radius: 50%;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-3, .HyperMD-list-line-7) .list-bullet:after {
+    height: 0.32em;
+    width: 0.32em;
+    border-radius: 0;
+    background-color: var(--typora-list-marker-color);
+    border: none;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.HyperMD-list-line-4, .HyperMD-list-line-8) .list-bullet:after {
+    height: 0.3em;
+    width: 0.3em;
+    background-color: transparent;
+    border: 1.25px solid var(--typora-list-marker-color);
+    border-radius: 0;
+}
+
+/* 嵌套缩进槽：每一级 = 标记槽宽 */
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent {
     display: inline-block;
 }
@@ -192,25 +224,18 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-list-indent .cm-hm
     min-width: var(--typora-list-indent) !important;
 }
 
-/* 按列表层级累计左内边距，子级明显比父级更靠右 */
-body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-1 {
-    padding-inline-start: 0.25em !important;
+/* 有序列表：数字本身占宽，轻微左缩进即可 */
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line:has(.cm-formatting-list-ol) {
+    padding-inline-start: 0.5em !important;
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-2 {
-    padding-inline-start: calc(var(--typora-list-indent) * 0.15) !important;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-3 {
-    padding-inline-start: calc(var(--typora-list-indent) * 0.15) !important;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-4,
-body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-5,
-body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-6,
-body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-7,
-body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-list-line-8 {
-    padding-inline-start: calc(var(--typora-list-indent) * 0.15) !important;
+/* 列表项之间的空行：保持接近 Typora，不要压成一条线 */
+body.typora-mode-active .markdown-source-view.mod-cm6
+.HyperMD-list-line + .cm-line:not(.HyperMD-list-line):not(.HyperMD-header):not(.HyperMD-codeblock):not(.HyperMD-quote):not(.HyperMD-table-row):not(.typora-paren-list-item):not(.typora-paren-list-body) {
+    min-height: 0.5em;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
 }
 
 /* 源码 Tab 在 Typora 模式下按 4 空格宽度显示 */
@@ -830,4 +855,49 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-footref {
 .modal.format-hotkeys-typora-config-modal .modal-content {
     max-height: 72vh;
     overflow-y: auto;
+}
+
+/* ============================================================
+   库级全局样式（原 .obsidian/snippets，由本插件默认全局加载）
+   来源：wangtao.css / image.css
+   ============================================================ */
+
+.my-indent {
+    display: block;
+    margin-left: 10em;
+    /* 为了看得清楚，我加个背景色 */
+    background-color: #222;
+}
+
+/* 取消阅读模式下的表头加粗 */
+.markdown-rendered th {
+    font-weight: normal !important;
+}
+
+/* 取消实时预览模式 (Live Preview) 下的表头加粗 */
+.markdown-source-view.mod-cm6 .cm-table-widget th {
+    font-weight: normal !important;
+}
+
+.mermaid {
+    display: flex;
+    justify-content: center;
+}
+
+/* 波浪下划线：<span class="wavy-underline">文字</span> */
+.wavy-underline {
+    text-decoration-line: underline;
+    text-decoration-style: wavy;
+    text-decoration-color: var(--text-accent);
+    text-underline-offset: 0.12em;
+}
+
+img {
+    display: block !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+.markdown-source-view.mod-cm6 .cm-content > * {
+    margin: auto auto !important;
 }
