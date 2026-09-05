@@ -13,8 +13,19 @@ export interface TyporaStyleSettings {
     headingUnderline: boolean;
     highlightActiveLine: boolean;
     headings: Record<HeadingLevel, TyporaHeadingStyle>;
-    /** 空=跟随主题；有值时覆盖浅色模式整站背景（侧栏/编辑区/标题栏） */
+    /** 空=跟随主题；浅色模式整站背景 */
     backgroundColor: string;
+    /** 空=跟随主题；深色模式整站背景 */
+    backgroundColorDark: string;
+    /** 空=跟随主题；浅色模式正文色 */
+    textColor: string;
+    /** 空=跟随主题；深色模式正文色 */
+    textColorDark: string;
+    /** 空=跟随主题；浅色次要文字（muted） */
+    textMutedColor: string;
+    /** 空=跟随主题；深色次要文字 */
+    textMutedColorDark: string;
+    boldColor: string;
     quoteColor: string;
     linkColor: string;
     inlineCodeColor: string;
@@ -48,6 +59,12 @@ export const DEFAULT_TYPORA_STYLE: TyporaStyleSettings = {
         6: { size: 0.95, color: "" },
     },
     backgroundColor: "",
+    backgroundColorDark: "",
+    textColor: "",
+    textColorDark: "",
+    textMutedColor: "",
+    textMutedColorDark: "",
+    boldColor: "",
     quoteColor: "",
     linkColor: "",
     inlineCodeColor: "",
@@ -77,6 +94,7 @@ const TYPORA_STYLE_KEYS = [
     "--typora-link-color",
     "--typora-inline-code-color",
     "--typora-list-marker-color",
+    "--typora-bold-color",
     "--typora-active-line-bg",
 ] as const;
 
@@ -143,7 +161,8 @@ function writeTyporaVars(el: HTMLElement, style: TyporaStyleSettings): void {
     el.style.setProperty("--typora-quote-color", style.quoteColor || "var(--text-muted)");
     el.style.setProperty("--typora-link-color", style.linkColor || "var(--link-color)");
     el.style.setProperty("--typora-inline-code-color", style.inlineCodeColor || "var(--code-normal, var(--text-normal))");
-    el.style.setProperty("--typora-list-marker-color", style.listMarkerColor || "var(--text-muted)");
+    el.style.setProperty("--typora-list-marker-color", style.listMarkerColor || "var(--text-normal)");
+    el.style.setProperty("--typora-bold-color", style.boldColor || "var(--bold-color, var(--text-normal))");
     el.style.setProperty(
         "--typora-active-line-bg",
         style.highlightActiveLine ? "rgba(135, 131, 120, 0.05)" : "transparent"
@@ -174,25 +193,86 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-header.cm-header-${lev
     }).join("\n");
 }
 
-/** 浅色模式整站背景：主色 + 侧栏等次级面略加深 */
-function backgroundOverrideCss(style: TyporaStyleSettings): string {
-    const bg = style.backgroundColor?.trim();
-    if (!bg) {
-        return "";
+/** 浅色 / 深色：背景 + 正文 / 次要文字 */
+function surfaceOverrideCss(style: TyporaStyleSettings): string {
+    const parts: string[] = [];
+
+    const lightBg = style.backgroundColor?.trim();
+    const darkBg = style.backgroundColorDark?.trim();
+    const lightText = style.textColor?.trim();
+    const darkText = style.textColorDark?.trim();
+    const lightMuted = style.textMutedColor?.trim();
+    const darkMuted = style.textMutedColorDark?.trim();
+    const bold = style.boldColor?.trim();
+
+    if (lightBg || lightText || lightMuted) {
+        const rules: string[] = [];
+        if (lightBg) {
+            rules.push(
+                `--background-primary: ${lightBg} !important;`,
+                `--background-primary-alt: color-mix(in srgb, ${lightBg} 92%, #000 8%) !important;`,
+                `--background-secondary: color-mix(in srgb, ${lightBg} 86%, #000 14%) !important;`,
+                `--background-secondary-alt: color-mix(in srgb, ${lightBg} 80%, #000 20%) !important;`,
+                `--titlebar-background: ${lightBg} !important;`,
+                `--titlebar-background-focused: ${lightBg} !important;`,
+                `--modal-background: ${lightBg} !important;`
+            );
+        }
+        if (lightText) {
+            rules.push(
+                `--text-normal: ${lightText} !important;`,
+                `--text-muted: ${lightMuted || `color-mix(in srgb, ${lightText} 72%, transparent)`} !important;`,
+                `--text-faint: color-mix(in srgb, ${lightText} 45%, transparent) !important;`
+            );
+        } else if (lightMuted) {
+            rules.push(`--text-muted: ${lightMuted} !important;`);
+        }
+        parts.push(`body.theme-light {\n${rules.map((r) => `    ${r}`).join("\n")}\n}`);
+        if (lightBg) {
+            parts.push(`.format-hotkeys-typora-preview { background: ${lightBg} !important; }`);
+        }
+        if (lightText) {
+            parts.push(`.format-hotkeys-typora-preview { color: ${lightText} !important; }`);
+        }
     }
-    return `
-body.theme-light {
-    --background-primary: ${bg} !important;
-    --background-primary-alt: color-mix(in srgb, ${bg} 92%, #000 8%) !important;
-    --background-secondary: color-mix(in srgb, ${bg} 86%, #000 14%) !important;
-    --background-secondary-alt: color-mix(in srgb, ${bg} 80%, #000 20%) !important;
-    --titlebar-background: ${bg} !important;
-    --titlebar-background-focused: ${bg} !important;
-    --modal-background: ${bg} !important;
+
+    if (darkBg || darkText || darkMuted) {
+        const rules: string[] = [];
+        if (darkBg) {
+            rules.push(
+                `--background-primary: ${darkBg} !important;`,
+                `--background-primary-alt: color-mix(in srgb, ${darkBg} 88%, #fff 12%) !important;`,
+                `--background-secondary: color-mix(in srgb, ${darkBg} 82%, #fff 18%) !important;`,
+                `--background-secondary-alt: color-mix(in srgb, ${darkBg} 76%, #fff 24%) !important;`,
+                `--titlebar-background: ${darkBg} !important;`,
+                `--titlebar-background-focused: ${darkBg} !important;`,
+                `--modal-background: ${darkBg} !important;`
+            );
+        }
+        if (darkText) {
+            rules.push(
+                `--text-normal: ${darkText} !important;`,
+                `--text-muted: ${darkMuted || `color-mix(in srgb, ${darkText} 72%, transparent)`} !important;`,
+                `--text-faint: color-mix(in srgb, ${darkText} 45%, transparent) !important;`
+            );
+        } else if (darkMuted) {
+            rules.push(`--text-muted: ${darkMuted} !important;`);
+        }
+        parts.push(`body.theme-dark {\n${rules.map((r) => `    ${r}`).join("\n")}\n}`);
+    }
+
+    if (bold) {
+        parts.push(`
+body.typora-mode-active .markdown-source-view.mod-cm6 {
+    --bold-color: ${bold} !important;
+    --typora-bold-color: ${bold} !important;
 }
-.format-hotkeys-typora-preview {
-    background: ${bg} !important;
-}`;
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-strong {
+    color: ${bold} !important;
+}`);
+    }
+
+    return parts.join("\n");
 }
 
 export function applyTyporaStyleVars(el: HTMLElement, style: TyporaStyleSettings): void {
@@ -207,7 +287,7 @@ export function applyTyporaStyleVars(el: HTMLElement, style: TyporaStyleSettings
         tag.id = TYPORA_RUNTIME_STYLE_ID;
         document.head.appendChild(tag);
     }
-    tag.textContent = [backgroundOverrideCss(style), headingColorOverrideCss(style)].join("\n");
+    tag.textContent = [surfaceOverrideCss(style), headingColorOverrideCss(style)].join("\n");
 }
 
 export function clearTyporaStyleVars(el: HTMLElement): void {

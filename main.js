@@ -399,6 +399,12 @@ const DEFAULT_TYPORA_STYLE = {
         6: { size: 0.95, color: "" },
     },
     backgroundColor: "",
+    backgroundColorDark: "",
+    textColor: "",
+    textColorDark: "",
+    textMutedColor: "",
+    textMutedColorDark: "",
+    boldColor: "",
     quoteColor: "",
     linkColor: "",
     inlineCodeColor: "",
@@ -426,6 +432,7 @@ const TYPORA_STYLE_KEYS = [
     "--typora-link-color",
     "--typora-inline-code-color",
     "--typora-list-marker-color",
+    "--typora-bold-color",
     "--typora-active-line-bg",
 ];
 function cloneHeading(style) {
@@ -476,7 +483,8 @@ function writeTyporaVars(el, style) {
     el.style.setProperty("--typora-quote-color", style.quoteColor || "var(--text-muted)");
     el.style.setProperty("--typora-link-color", style.linkColor || "var(--link-color)");
     el.style.setProperty("--typora-inline-code-color", style.inlineCodeColor || "var(--code-normal, var(--text-normal))");
-    el.style.setProperty("--typora-list-marker-color", style.listMarkerColor || "var(--text-muted)");
+    el.style.setProperty("--typora-list-marker-color", style.listMarkerColor || "var(--text-normal)");
+    el.style.setProperty("--typora-bold-color", style.boldColor || "var(--bold-color, var(--text-normal))");
     el.style.setProperty("--typora-active-line-bg", style.highlightActiveLine ? "rgba(135, 131, 120, 0.05)" : "transparent");
 }
 function headingColorOverrideCss(style) {
@@ -502,26 +510,60 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-header.cm-header-${lev
 }`;
     }).join("\n");
 }
-/** 浅色模式整站背景：主色 + 侧栏等次级面略加深 */
-function backgroundOverrideCss(style) {
-    var _a;
-    const bg = (_a = style.backgroundColor) === null || _a === void 0 ? void 0 : _a.trim();
-    if (!bg) {
-        return "";
+/** 浅色 / 深色：背景 + 正文 / 次要文字 */
+function surfaceOverrideCss(style) {
+    var _a, _b, _c, _d, _e, _f, _g;
+    const parts = [];
+    const lightBg = (_a = style.backgroundColor) === null || _a === void 0 ? void 0 : _a.trim();
+    const darkBg = (_b = style.backgroundColorDark) === null || _b === void 0 ? void 0 : _b.trim();
+    const lightText = (_c = style.textColor) === null || _c === void 0 ? void 0 : _c.trim();
+    const darkText = (_d = style.textColorDark) === null || _d === void 0 ? void 0 : _d.trim();
+    const lightMuted = (_e = style.textMutedColor) === null || _e === void 0 ? void 0 : _e.trim();
+    const darkMuted = (_f = style.textMutedColorDark) === null || _f === void 0 ? void 0 : _f.trim();
+    const bold = (_g = style.boldColor) === null || _g === void 0 ? void 0 : _g.trim();
+    if (lightBg || lightText || lightMuted) {
+        const rules = [];
+        if (lightBg) {
+            rules.push(`--background-primary: ${lightBg} !important;`, `--background-primary-alt: color-mix(in srgb, ${lightBg} 92%, #000 8%) !important;`, `--background-secondary: color-mix(in srgb, ${lightBg} 86%, #000 14%) !important;`, `--background-secondary-alt: color-mix(in srgb, ${lightBg} 80%, #000 20%) !important;`, `--titlebar-background: ${lightBg} !important;`, `--titlebar-background-focused: ${lightBg} !important;`, `--modal-background: ${lightBg} !important;`);
+        }
+        if (lightText) {
+            rules.push(`--text-normal: ${lightText} !important;`, `--text-muted: ${lightMuted || `color-mix(in srgb, ${lightText} 72%, transparent)`} !important;`, `--text-faint: color-mix(in srgb, ${lightText} 45%, transparent) !important;`);
+        }
+        else if (lightMuted) {
+            rules.push(`--text-muted: ${lightMuted} !important;`);
+        }
+        parts.push(`body.theme-light {\n${rules.map((r) => `    ${r}`).join("\n")}\n}`);
+        if (lightBg) {
+            parts.push(`.format-hotkeys-typora-preview { background: ${lightBg} !important; }`);
+        }
+        if (lightText) {
+            parts.push(`.format-hotkeys-typora-preview { color: ${lightText} !important; }`);
+        }
     }
-    return `
-body.theme-light {
-    --background-primary: ${bg} !important;
-    --background-primary-alt: color-mix(in srgb, ${bg} 92%, #000 8%) !important;
-    --background-secondary: color-mix(in srgb, ${bg} 86%, #000 14%) !important;
-    --background-secondary-alt: color-mix(in srgb, ${bg} 80%, #000 20%) !important;
-    --titlebar-background: ${bg} !important;
-    --titlebar-background-focused: ${bg} !important;
-    --modal-background: ${bg} !important;
+    if (darkBg || darkText || darkMuted) {
+        const rules = [];
+        if (darkBg) {
+            rules.push(`--background-primary: ${darkBg} !important;`, `--background-primary-alt: color-mix(in srgb, ${darkBg} 88%, #fff 12%) !important;`, `--background-secondary: color-mix(in srgb, ${darkBg} 82%, #fff 18%) !important;`, `--background-secondary-alt: color-mix(in srgb, ${darkBg} 76%, #fff 24%) !important;`, `--titlebar-background: ${darkBg} !important;`, `--titlebar-background-focused: ${darkBg} !important;`, `--modal-background: ${darkBg} !important;`);
+        }
+        if (darkText) {
+            rules.push(`--text-normal: ${darkText} !important;`, `--text-muted: ${darkMuted || `color-mix(in srgb, ${darkText} 72%, transparent)`} !important;`, `--text-faint: color-mix(in srgb, ${darkText} 45%, transparent) !important;`);
+        }
+        else if (darkMuted) {
+            rules.push(`--text-muted: ${darkMuted} !important;`);
+        }
+        parts.push(`body.theme-dark {\n${rules.map((r) => `    ${r}`).join("\n")}\n}`);
+    }
+    if (bold) {
+        parts.push(`
+body.typora-mode-active .markdown-source-view.mod-cm6 {
+    --bold-color: ${bold} !important;
+    --typora-bold-color: ${bold} !important;
 }
-.format-hotkeys-typora-preview {
-    background: ${bg} !important;
-}`;
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-strong {
+    color: ${bold} !important;
+}`);
+    }
+    return parts.join("\n");
 }
 function applyTyporaStyleVars(el, style) {
     writeTyporaVars(el, style);
@@ -534,7 +576,7 @@ function applyTyporaStyleVars(el, style) {
         tag.id = TYPORA_RUNTIME_STYLE_ID;
         document.head.appendChild(tag);
     }
-    tag.textContent = [backgroundOverrideCss(style), headingColorOverrideCss(style)].join("\n");
+    tag.textContent = [surfaceOverrideCss(style), headingColorOverrideCss(style)].join("\n");
 }
 function clearTyporaStyleVars(el) {
     var _a;
@@ -695,14 +737,81 @@ class TyporaSettingsPanel {
             this.addHeadingStyleSetting(containerEl, level);
         }
         containerEl.createEl("h4", { text: "界面与颜色", cls: "format-hotkeys-typora-subtitle" });
+        containerEl.createEl("p", {
+            text: "背景 / 正文可分别设置浅色与深色。空值跟随当前主题；点重置恢复主题色。",
+            cls: "setting-item-description",
+        });
         this.addOptionalColorSetting(containerEl, {
             name: "浅色模式背景",
-            desc: "覆盖 Obsidian 整站背景（编辑区、侧栏、标题栏）。浅色太刺眼时可调成浅灰/米色；重置则恢复主题默认。深色模式不受影响。",
+            desc: "覆盖浅色模式下整站背景（编辑区、侧栏、标题栏）",
             getValue: () => this.plugin.settings.typora.backgroundColor,
             setValue: (value) => {
                 this.plugin.settings.typora.backgroundColor = value;
             },
             fallbackVar: "--background-primary",
+            fallbackHex: "#ffffff",
+        });
+        this.addOptionalColorSetting(containerEl, {
+            name: "深色模式背景",
+            desc: "覆盖深色模式下整站背景；浅色模式不受影响",
+            getValue: () => this.plugin.settings.typora.backgroundColorDark,
+            setValue: (value) => {
+                this.plugin.settings.typora.backgroundColorDark = value;
+            },
+            fallbackVar: "--background-primary",
+            fallbackHex: "#1e1e1e",
+            preferDarkFallback: true,
+        });
+        this.addOptionalColorSetting(containerEl, {
+            name: "浅色模式正文",
+            desc: "浅色模式下正文 / 段落文字颜色",
+            getValue: () => this.plugin.settings.typora.textColor,
+            setValue: (value) => {
+                this.plugin.settings.typora.textColor = value;
+            },
+            fallbackVar: "--text-normal",
+            fallbackHex: "#2e3338",
+        });
+        this.addOptionalColorSetting(containerEl, {
+            name: "深色模式正文",
+            desc: "深色模式下正文 / 段落文字颜色",
+            getValue: () => this.plugin.settings.typora.textColorDark,
+            setValue: (value) => {
+                this.plugin.settings.typora.textColorDark = value;
+            },
+            fallbackVar: "--text-normal",
+            fallbackHex: "#dcddde",
+            preferDarkFallback: true,
+        });
+        this.addOptionalColorSetting(containerEl, {
+            name: "浅色次要文字",
+            desc: "浅色模式下弱化文字（muted）",
+            getValue: () => this.plugin.settings.typora.textMutedColor,
+            setValue: (value) => {
+                this.plugin.settings.typora.textMutedColor = value;
+            },
+            fallbackVar: "--text-muted",
+            fallbackHex: "#6c6f73",
+        });
+        this.addOptionalColorSetting(containerEl, {
+            name: "深色次要文字",
+            desc: "深色模式下弱化文字（muted）",
+            getValue: () => this.plugin.settings.typora.textMutedColorDark,
+            setValue: (value) => {
+                this.plugin.settings.typora.textMutedColorDark = value;
+            },
+            fallbackVar: "--text-muted",
+            fallbackHex: "#999999",
+            preferDarkFallback: true,
+        });
+        this.addOptionalColorSetting(containerEl, {
+            name: "粗体颜色",
+            desc: "加粗文字颜色（空则跟随正文）",
+            getValue: () => this.plugin.settings.typora.boldColor,
+            setValue: (value) => {
+                this.plugin.settings.typora.boldColor = value;
+            },
+            fallbackVar: "--text-normal",
         });
         this.addOptionalColorSetting(containerEl, {
             name: "引用文字颜色",
@@ -738,7 +847,7 @@ class TyporaSettingsPanel {
             setValue: (value) => {
                 this.plugin.settings.typora.listMarkerColor = value;
             },
-            fallbackVar: "--text-muted",
+            fallbackVar: "--text-normal",
         });
         new obsidian.Setting(containerEl)
             .setName("恢复默认样式")
@@ -818,7 +927,17 @@ class TyporaSettingsPanel {
         this.attachColorPicker(setting, {
             getValue: options.getValue,
             setValue: options.setValue,
-            resolveFallback: () => themeColorHex(options.fallbackVar),
+            resolveFallback: () => {
+                const isDark = document.body.classList.contains("theme-dark");
+                if (options.preferDarkFallback && !isDark && options.fallbackHex) {
+                    return options.fallbackHex;
+                }
+                if (!options.preferDarkFallback && isDark && options.fallbackHex && options.fallbackVar === "--background-primary") {
+                    // 浅色项在深色主题下也尽量给出合理示意色
+                    return options.fallbackHex;
+                }
+                return themeColorHex(options.fallbackVar);
+            },
         });
     }
     attachColorPicker(setting, options) {

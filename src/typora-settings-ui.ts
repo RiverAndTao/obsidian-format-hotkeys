@@ -120,15 +120,88 @@ export class TyporaSettingsPanel {
         }
 
         containerEl.createEl("h4", { text: "界面与颜色", cls: "format-hotkeys-typora-subtitle" });
+        containerEl.createEl("p", {
+            text: "背景 / 正文可分别设置浅色与深色。空值跟随当前主题；点重置恢复主题色。",
+            cls: "setting-item-description",
+        });
 
         this.addOptionalColorSetting(containerEl, {
             name: "浅色模式背景",
-            desc: "覆盖 Obsidian 整站背景（编辑区、侧栏、标题栏）。浅色太刺眼时可调成浅灰/米色；重置则恢复主题默认。深色模式不受影响。",
+            desc: "覆盖浅色模式下整站背景（编辑区、侧栏、标题栏）",
             getValue: () => this.plugin.settings.typora.backgroundColor,
             setValue: (value) => {
                 this.plugin.settings.typora.backgroundColor = value;
             },
             fallbackVar: "--background-primary",
+            fallbackHex: "#ffffff",
+        });
+
+        this.addOptionalColorSetting(containerEl, {
+            name: "深色模式背景",
+            desc: "覆盖深色模式下整站背景；浅色模式不受影响",
+            getValue: () => this.plugin.settings.typora.backgroundColorDark,
+            setValue: (value) => {
+                this.plugin.settings.typora.backgroundColorDark = value;
+            },
+            fallbackVar: "--background-primary",
+            fallbackHex: "#1e1e1e",
+            preferDarkFallback: true,
+        });
+
+        this.addOptionalColorSetting(containerEl, {
+            name: "浅色模式正文",
+            desc: "浅色模式下正文 / 段落文字颜色",
+            getValue: () => this.plugin.settings.typora.textColor,
+            setValue: (value) => {
+                this.plugin.settings.typora.textColor = value;
+            },
+            fallbackVar: "--text-normal",
+            fallbackHex: "#2e3338",
+        });
+
+        this.addOptionalColorSetting(containerEl, {
+            name: "深色模式正文",
+            desc: "深色模式下正文 / 段落文字颜色",
+            getValue: () => this.plugin.settings.typora.textColorDark,
+            setValue: (value) => {
+                this.plugin.settings.typora.textColorDark = value;
+            },
+            fallbackVar: "--text-normal",
+            fallbackHex: "#dcddde",
+            preferDarkFallback: true,
+        });
+
+        this.addOptionalColorSetting(containerEl, {
+            name: "浅色次要文字",
+            desc: "浅色模式下弱化文字（muted）",
+            getValue: () => this.plugin.settings.typora.textMutedColor,
+            setValue: (value) => {
+                this.plugin.settings.typora.textMutedColor = value;
+            },
+            fallbackVar: "--text-muted",
+            fallbackHex: "#6c6f73",
+        });
+
+        this.addOptionalColorSetting(containerEl, {
+            name: "深色次要文字",
+            desc: "深色模式下弱化文字（muted）",
+            getValue: () => this.plugin.settings.typora.textMutedColorDark,
+            setValue: (value) => {
+                this.plugin.settings.typora.textMutedColorDark = value;
+            },
+            fallbackVar: "--text-muted",
+            fallbackHex: "#999999",
+            preferDarkFallback: true,
+        });
+
+        this.addOptionalColorSetting(containerEl, {
+            name: "粗体颜色",
+            desc: "加粗文字颜色（空则跟随正文）",
+            getValue: () => this.plugin.settings.typora.boldColor,
+            setValue: (value) => {
+                this.plugin.settings.typora.boldColor = value;
+            },
+            fallbackVar: "--text-normal",
         });
 
         this.addOptionalColorSetting(containerEl, {
@@ -168,7 +241,7 @@ export class TyporaSettingsPanel {
             setValue: (value) => {
                 this.plugin.settings.typora.listMarkerColor = value;
             },
-            fallbackVar: "--text-muted",
+            fallbackVar: "--text-normal",
         });
 
         new Setting(containerEl)
@@ -277,13 +350,26 @@ export class TyporaSettingsPanel {
             getValue: () => string;
             setValue: (value: string) => void;
             fallbackVar: string;
+            fallbackHex?: string;
+            /** 当前是浅色主题时，深色项用固定 fallbackHex，避免取到浅色变量 */
+            preferDarkFallback?: boolean;
         }
     ): void {
         const setting = new Setting(containerEl).setName(options.name).setDesc(options.desc);
         this.attachColorPicker(setting, {
             getValue: options.getValue,
             setValue: options.setValue,
-            resolveFallback: () => themeColorHex(options.fallbackVar),
+            resolveFallback: () => {
+                const isDark = document.body.classList.contains("theme-dark");
+                if (options.preferDarkFallback && !isDark && options.fallbackHex) {
+                    return options.fallbackHex;
+                }
+                if (!options.preferDarkFallback && isDark && options.fallbackHex && options.fallbackVar === "--background-primary") {
+                    // 浅色项在深色主题下也尽量给出合理示意色
+                    return options.fallbackHex;
+                }
+                return themeColorHex(options.fallbackVar);
+            },
         });
     }
 
