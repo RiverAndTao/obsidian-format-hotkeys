@@ -84,8 +84,12 @@ body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .cm-lin
    ===================================================== */
 
 body.typora-mode-active .markdown-source-view.mod-cm6 {
-    /* 截图比例：一级圆点约在正文左缘 + 0.5em，正文约在 + 1.25em */
-    --typora-ul-pad: 1.25em;
+    /*
+     * 每一级整行累计右移 1em：
+     * 核心要点（0）→ 定义/地位/关系/注意（1em）
+     *             → 时钟频率/机器周期/指令周期（2em）
+     */
+    --typora-ul-pad: 1em;
     --typora-ul-marker: 0.75em;
     --typora-ul-gap: 0.25em;
     --typora-list-step: 1em;
