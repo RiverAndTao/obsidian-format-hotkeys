@@ -277,6 +277,21 @@ export class TyporaSettingsPanel {
         body.appendText(" 与 ");
         body.createEl("a", { text: "链接文字", href: "#" });
         body.appendText("。");
+
+        const table = preview.createEl("table");
+        const headRow = table.createEl("thead").createEl("tr");
+        for (const label of ["字段", "值", "说明"]) {
+            headRow.createEl("th", { text: label });
+        }
+        const tbody = table.createEl("tbody");
+        const rowA = tbody.createEl("tr");
+        rowA.createEl("td", { text: "mod" });
+        rowA.createEl("td", { text: "01" });
+        rowA.createEl("td", { text: "奇数行" });
+        const rowB = tbody.createEl("tr");
+        rowB.createEl("td", { text: "r/m" });
+        rowB.createEl("td", { text: "001" });
+        rowB.createEl("td", { text: "偶数行灰底" });
     }
 
     private addHeadingStyleSetting(containerEl: HTMLElement, level: HeadingLevel): void {

@@ -22,6 +22,15 @@
     --typora-link-color: var(--link-color);
     --typora-inline-code-color: var(--code-normal, var(--text-normal));
     --typora-active-line-bg: rgba(135, 131, 120, 0.05);
+    /* 表格：对齐 Typora GitHub（浅色）/ Night（全宽），隔行填充随主题切换 */
+    --typora-table-border: #dfe2e5;
+    --typora-table-stripe: #f8f8f8;
+    --typora-table-cell-padding: 6px 13px;
+}
+
+body.theme-dark {
+    --typora-table-border: #474d54;
+    --typora-table-stripe: color-mix(in srgb, var(--background-primary) 88%, #fff 12%);
 }
 
 /* ============================================================
@@ -605,8 +614,23 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-task-marker.cm-task-ma
 }
 
 /* =====================================================
-   第十三部分：表格
+   第十三部分：表格（Typora：左右顶满 + 隔行灰底，浅/深色分开）
    ===================================================== */
+
+body.typora-mode-active {
+    --table-width: 100%;
+    --table-background: transparent;
+    --table-header-background: transparent;
+    --table-header-background-hover: transparent;
+    --table-header-weight: 400;
+    --table-border-width: 1px;
+    --table-border-color: var(--typora-table-border);
+    --table-header-border-color: var(--typora-table-border);
+    --table-row-alt-background: var(--typora-table-stripe);
+    --table-row-alt-background-hover: var(--typora-table-stripe);
+    --table-column-alt-background: unset;
+    --table-row-background-hover: transparent;
+}
 
 body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
 .cm-line:not(.cm-active) .cm-formatting.cm-formatting-table {
@@ -616,6 +640,65 @@ body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-table-row {
     font-size: 0.95em;
     line-height: 1.5;
+}
+
+/* 实时预览表格控件：撑满内容区，而不是按文字收缩 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-embed-block.cm-table-widget,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget .table-wrapper,
+body.typora-mode-active .markdown-preview-view .el-table,
+body.typora-mode-active .markdown-preview-view .table-wrapper {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+body.typora-mode-active .markdown-rendered table,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget table,
+.format-hotkeys-typora-preview table {
+    width: 100%;
+    max-width: 100%;
+    table-layout: auto;
+    border-collapse: collapse;
+    border-spacing: 0;
+    word-break: initial;
+    margin: 0.8em 0;
+}
+
+body.typora-mode-active .markdown-rendered th,
+body.typora-mode-active .markdown-rendered td,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget th,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget td,
+.format-hotkeys-typora-preview th,
+.format-hotkeys-typora-preview td {
+    border: 1px solid var(--typora-table-border);
+    padding: var(--typora-table-cell-padding);
+    background-color: transparent;
+    vertical-align: middle;
+    font-weight: 400;
+}
+
+/* GitHub 主题：thead + 偶数行浅灰；深色用略提亮的底 */
+body.typora-mode-active .markdown-rendered thead,
+body.typora-mode-active .markdown-rendered tr:nth-child(2n),
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget thead,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget tr:nth-child(2n),
+.format-hotkeys-typora-preview thead,
+.format-hotkeys-typora-preview tr:nth-child(2n) {
+    background-color: var(--typora-table-stripe);
+}
+
+body.typora-mode-active .markdown-rendered thead th,
+body.typora-mode-active .markdown-rendered tr:nth-child(2n) > td,
+body.typora-mode-active .markdown-rendered tr:nth-child(2n) > th,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget thead th,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget tr:nth-child(2n) > td,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget tr:nth-child(2n) > th,
+.format-hotkeys-typora-preview thead th,
+.format-hotkeys-typora-preview tr:nth-child(2n) > td,
+.format-hotkeys-typora-preview tr:nth-child(2n) > th {
+    background-color: var(--typora-table-stripe);
 }
 
 /* =====================================================
