@@ -759,7 +759,7 @@ body.typora-mode-active {
     --table-header-border-color: var(--typora-table-border);
     --table-row-alt-background: var(--typora-table-stripe);
     --table-row-alt-background-hover: var(--typora-table-stripe);
-    --table-column-alt-background: transparent;
+    --table-column-alt-background: inherit;
     --table-row-background-hover: transparent;
 }
 
@@ -820,7 +820,6 @@ body.typora-mode-active :is(
 .format-hotkeys-typora-preview td {
     border: 1px solid var(--typora-table-border) !important;
     padding: var(--typora-table-cell-padding) !important;
-    background-color: transparent;
     vertical-align: middle;
     font-weight: 400;
 }
@@ -832,58 +831,41 @@ body.typora-mode-active :is(
     .cm-table-widget,
     .cm-html-embed
 ) :is(th, td) .table-cell-wrapper {
-    background-color: transparent;
+    background-color: inherit;
 }
 
-/* 偶数行灰底：兼容 thead/tbody 管道表，以及无 tbody 的 HTML <table><tr> */
-body.typora-mode-active :is(
-    .markdown-rendered,
-    .markdown-preview-view,
-    .markdown-source-view.mod-cm6,
-    .cm-table-widget,
-    .cm-html-embed
-) :is(
-    thead,
-    thead tr,
-    tr:nth-child(even),
-    tbody tr:nth-child(even)
-),
-.format-hotkeys-typora-preview :is(thead, thead tr, tr:nth-child(even), tbody tr:nth-child(even)) {
-    background-color: var(--typora-table-stripe);
+/* 行斑马：直接涂单元格，避免被 --table-column-alt-background 列条纹盖掉 */
+body.typora-mode-active .markdown-rendered table tbody tr:nth-child(odd) > :is(th, td),
+body.typora-mode-active .markdown-preview-view table tbody tr:nth-child(odd) > :is(th, td),
+body.typora-mode-active .markdown-source-view.mod-cm6 table tbody tr:nth-child(odd) > :is(th, td),
+body.typora-mode-active .cm-table-widget table tbody tr:nth-child(odd) > :is(th, td),
+body.typora-mode-active .cm-html-embed table tbody tr:nth-child(odd) > :is(th, td),
+body.typora-mode-active .markdown-rendered table > tr:nth-child(odd) > :is(th, td),
+body.typora-mode-active .cm-html-embed table > tr:nth-child(odd) > :is(th, td),
+.format-hotkeys-typora-preview table tbody tr:nth-child(odd) > :is(th, td) {
+    background-color: transparent !important;
 }
 
-body.typora-mode-active :is(
-    .markdown-rendered,
-    .markdown-preview-view,
-    .markdown-source-view.mod-cm6,
-    .cm-table-widget,
-    .cm-html-embed
-) :is(
-    thead th,
-    thead td,
-    tr:nth-child(even) > th,
-    tr:nth-child(even) > td,
-    tbody tr:nth-child(even) > th,
-    tbody tr:nth-child(even) > td
-),
-.format-hotkeys-typora-preview :is(
-    thead th,
-    tr:nth-child(even) > th,
-    tr:nth-child(even) > td,
-    tbody tr:nth-child(even) > td
-) {
+body.typora-mode-active .markdown-rendered table thead > tr > :is(th, td),
+body.typora-mode-active .markdown-preview-view table thead > tr > :is(th, td),
+body.typora-mode-active .markdown-source-view.mod-cm6 table thead > tr > :is(th, td),
+body.typora-mode-active .cm-table-widget table thead > tr > :is(th, td),
+body.typora-mode-active .markdown-rendered table tbody tr:nth-child(even) > :is(th, td),
+body.typora-mode-active .markdown-preview-view table tbody tr:nth-child(even) > :is(th, td),
+body.typora-mode-active .markdown-source-view.mod-cm6 table tbody tr:nth-child(even) > :is(th, td),
+body.typora-mode-active .cm-table-widget table tbody tr:nth-child(even) > :is(th, td),
+body.typora-mode-active .cm-html-embed table tbody tr:nth-child(even) > :is(th, td),
+body.typora-mode-active .markdown-rendered table > tr:nth-child(even) > :is(th, td),
+body.typora-mode-active .cm-html-embed table > tr:nth-child(even) > :is(th, td),
+.format-hotkeys-typora-preview table thead > tr > :is(th, td),
+.format-hotkeys-typora-preview table tbody tr:nth-child(even) > :is(th, td) {
     background-color: var(--typora-table-stripe) !important;
 }
 
-body.typora-mode-active :is(
-    .markdown-rendered,
-    .cm-table-widget,
-    .cm-html-embed
-) :is(
-    thead th .table-cell-wrapper,
-    tr:nth-child(even) .table-cell-wrapper,
-    tbody tr:nth-child(even) .table-cell-wrapper
-) {
+body.typora-mode-active .markdown-rendered table tbody tr:nth-child(even) .table-cell-wrapper,
+body.typora-mode-active .cm-table-widget table tbody tr:nth-child(even) .table-cell-wrapper,
+body.typora-mode-active .markdown-rendered table thead .table-cell-wrapper,
+body.typora-mode-active .cm-table-widget table thead .table-cell-wrapper {
     background-color: var(--typora-table-stripe) !important;
 }
 
