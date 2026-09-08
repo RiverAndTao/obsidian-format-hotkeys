@@ -1,8 +1,28 @@
 'use strict';
 
-var obsidian = require('obsidian');
+var ObsidianApi = require('obsidian');
 var state = require('@codemirror/state');
 var view = require('@codemirror/view');
+
+function _interopNamespace(e) {
+    if (e && e.__esModule) return e;
+    var n = Object.create(null);
+    if (e) {
+        Object.keys(e).forEach(function (k) {
+            if (k !== 'default') {
+                var d = Object.getOwnPropertyDescriptor(e, k);
+                Object.defineProperty(n, k, d.get ? d : {
+                    enumerable: true,
+                    get: function () { return e[k]; }
+                });
+            }
+        });
+    }
+    n["default"] = e;
+    return Object.freeze(n);
+}
+
+var ObsidianApi__namespace = /*#__PURE__*/_interopNamespace(ObsidianApi);
 
 /******************************************************************************
 Copyright (c) Microsoft Corporation.
@@ -34,13 +54,148 @@ typeof SuppressedError === "function" ? SuppressedError : function (error, suppr
     return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
 };
 
+/** 保护代码块 / 行内代码 / 公式，避免格式变换误伤 */
+const PLACEHOLDER_START = "\uE000";
+const PLACEHOLDER_END = "\uE001";
+function withProtectedRegions(text, transform) {
+    const slots = [];
+    const stash = (match) => {
+        slots.push(match);
+        return `${PLACEHOLDER_START}${slots.length - 1}${PLACEHOLDER_END}`;
+    };
+    const masked = text
+        .replace(/```[\s\S]*?```/g, stash)
+        .replace(/\$\$[\s\S]*?\$\$/g, stash)
+        .replace(/\$[^$\n]+\$/g, stash)
+        .replace(/`[^`\n]+`/g, stash);
+    const transformed = transform(masked);
+    return transformed.replace(/\uE000(\d+)\uE001/g, (_, index) => { var _a; return (_a = slots[Number(index)]) !== null && _a !== void 0 ? _a : ""; });
+}
+const RED_VALUES = new Set([
+    "red",
+    "#f00",
+    "#ff0000",
+    "#d1242f",
+    "#cf222e",
+    "#d73a49",
+    "#c41e3a",
+    "#c00000",
+    "#d93333",
+    "#ff7b72",
+    "#f85149",
+    "rgb(255,0,0)",
+    "rgb(255, 0, 0)",
+]);
+function normalizeColor(value) {
+    return value.trim().toLowerCase().replace(/\s+/g, "");
+}
+function isRedColorValue(value) {
+    return RED_VALUES.has(normalizeColor(value));
+}
+function colorFromAttrs$1(attrs) {
+    const quoted = attrs.match(/\bcolor\s*=\s*["']([^"']+)["']/i);
+    if (quoted) {
+        return quoted[1];
+    }
+    const bare = attrs.match(/\bcolor\s*=\s*([#\w()]+)/i);
+    if (bare) {
+        return bare[1];
+    }
+    const style = attrs.match(/\bstyle\s*=\s*["']([^"']+)["']/i);
+    if (style) {
+        const color = style[1].match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
+        if (color) {
+            return color[1];
+        }
+    }
+    return null;
+}
+function hasBoldWeight$1(attrs) {
+    return /font-weight\s*:\s*(bold|[6-9]00)/i.test(attrs);
+}
+function wrapAsBold(inner) {
+    var _a, _b, _c, _d;
+    const lead = (_b = (_a = inner.match(/^\s*/)) === null || _a === void 0 ? void 0 : _a[0]) !== null && _b !== void 0 ? _b : "";
+    const trail = (_d = (_c = inner.match(/\s*$/)) === null || _c === void 0 ? void 0 : _c[0]) !== null && _d !== void 0 ? _d : "";
+    let core = inner.slice(lead.length, inner.length - trail.length);
+    core = core.replace(/\*\*/g, "");
+    if (!core) {
+        return inner;
+    }
+    return `${lead}**${core}**`;
+}
+function unwrapHtmlOnce(text, toBold, redOnly) {
+    const replaceTag = (attrs, inner) => {
+        const color = colorFromAttrs$1(attrs);
+        if (redOnly) {
+            if (!color || !isRedColorValue(color)) {
+                return null;
+            }
+            if (hasBoldWeight$1(attrs)) {
+                return wrapAsBold(inner);
+            }
+            return inner;
+        }
+        return wrapAsBold(inner);
+    };
+    let out = text.replace(/<font\b([^>]*)>([\s\S]*?)<\/font>/gi, (full, attrs, inner) => {
+        const next = replaceTag(attrs, inner);
+        return next === null ? full : next;
+    });
+    out = out.replace(/<span\b([^>]*)>([\s\S]*?)<\/span>/gi, (full, attrs, inner) => {
+        if (redOnly) {
+            const color = colorFromAttrs$1(attrs);
+            if (!color || !isRedColorValue(color)) {
+                return full;
+            }
+            return hasBoldWeight$1(attrs) ? wrapAsBold(inner) : inner;
+        }
+        if (!colorFromAttrs$1(attrs) && !hasBoldWeight$1(attrs)) {
+            return full;
+        }
+        return wrapAsBold(inner);
+    });
+    if (!redOnly) {
+        out = out.replace(/<u>([\s\S]*?)<\/u>/gi, (_full, inner) => wrapAsBold(inner));
+        out = out.replace(/<(?:b|strong)>([\s\S]*?)<\/(?:b|strong)>/gi, (_full, inner) => wrapAsBold(inner));
+    }
+    return out;
+}
+function stabilize(text, step) {
+    let current = text;
+    for (let i = 0; i < 8; i++) {
+        const next = step(current);
+        if (next === current) {
+            return current;
+        }
+        current = next;
+    }
+    return current;
+}
+/** 选区内 HTML 变色 / 下划线 / 加粗标签全部变成 Markdown **加粗** */
+function flattenInlineToBold(text) {
+    return withProtectedRegions(text, (plain) => stabilize(plain, (value) => unwrapHtmlOnce(value, true, false)));
+}
+/** 去掉选区内的变红标记；若原标签带 bold，则保留为 **加粗** */
+function stripRedMarkup(text) {
+    return withProtectedRegions(text, (plain) => stabilize(plain, (value) => unwrapHtmlOnce(value, false, true)));
+}
+function selectionAlreadyBoldWrapped(text) {
+    return /^\*\*[\s\S]+\*\*$/.test(text) && !text.slice(2, -2).includes("**");
+}
+
+const UNDO_ORIGIN = "format-hotkeys";
+/** 一次替换，进入同一个撤销步 */
+function replaceRangeOnce(editor, replacement, from = editor.getCursor("from"), to = editor.getCursor("to")) {
+    editor.replaceRange(replacement, from, to, UNDO_ORIGIN);
+}
 /** 切换包裹格式：已包裹则取消，否则添加 */
 function toggleWrap(editor, open, close) {
     const selected = editor.getSelection();
     const from = editor.getCursor("from");
     const to = editor.getCursor("to");
     if (from.line !== to.line) {
-        editor.replaceSelection(open + selected + close);
+        editor.replaceSelection(open + selected + close, UNDO_ORIGIN);
         if (selected.length > 0) {
             editor.setSelection({ line: from.line, ch: from.ch + open.length }, { line: to.line, ch: to.ch + open.length });
         }
@@ -56,11 +211,11 @@ function toggleWrap(editor, open, close) {
         afterEnd <= line.length &&
         line.substring(beforeStart, from.ch) === open &&
         line.substring(to.ch, afterEnd) === close) {
-        editor.replaceRange(selected, { line: from.line, ch: beforeStart }, { line: to.line, ch: afterEnd });
+        editor.replaceRange(selected, { line: from.line, ch: beforeStart }, { line: to.line, ch: afterEnd }, UNDO_ORIGIN);
         editor.setSelection({ line: from.line, ch: beforeStart }, { line: to.line, ch: beforeStart + selected.length });
         return;
     }
-    editor.replaceSelection(open + selected + close);
+    editor.replaceSelection(open + selected + close, UNDO_ORIGIN);
     if (selected.length > 0) {
         editor.setSelection({ line: from.line, ch: from.ch + open.length }, { line: to.line, ch: to.ch + open.length });
     }
@@ -373,6 +528,44 @@ function wrapCallout(editor, type = "tip") {
     editor.replaceRange(`> [!${type}]\n${body}`, { line: from.line, ch: 0 }, { line: from.line, ch: line.length });
     editor.setCursor({ line: from.line + 1, ch: body.length });
 }
+/** 切换选区 Markdown 加粗 `** **` */
+function toggleBold(editor) {
+    const selected = editor.getSelection();
+    if (selected.length > 0 && selectionAlreadyBoldWrapped(selected)) {
+        const inner = selected.slice(2, -2);
+        const from = editor.getCursor("from");
+        const to = editor.getCursor("to");
+        replaceRangeOnce(editor, inner, from, to);
+        editor.setSelection(from, { line: from.line, ch: from.ch + inner.length });
+        return;
+    }
+    toggleWrap(editor, "**", "**");
+}
+function rewriteSelection(editor, rewrite) {
+    const selected = editor.getSelection();
+    if (selected.length === 0) {
+        return;
+    }
+    const next = rewrite(selected);
+    if (next === selected) {
+        return;
+    }
+    const from = editor.getCursor("from");
+    replaceRangeOnce(editor, next, from, editor.getCursor("to"));
+    const lines = next.split("\n");
+    const end = lines.length === 1
+        ? { line: from.line, ch: from.ch + next.length }
+        : { line: from.line + lines.length - 1, ch: lines[lines.length - 1].length };
+    editor.setSelection(from, end);
+}
+/** 选区内 HTML 变色 / 下划线等全部变成 **加粗** */
+function flattenSelectionToBold(editor) {
+    rewriteSelection(editor, flattenInlineToBold);
+}
+/** 去掉选区内变红；带粗体的红字保留为 **加粗** */
+function removeRedInSelection(editor) {
+    rewriteSelection(editor, stripRedMarkup);
+}
 
 const HEADING_LEVELS = [1, 2, 3, 4, 5, 6];
 const HEADING_LABELS = {
@@ -661,7 +854,7 @@ class TyporaSettingsPanel {
             text: "默认跟随当前主题的标题色（Prime 主题：H1 紫、H2 青、H3 绿、H4 黄、H5 橙、H6 粉）。改色后即时生效。",
             cls: "setting-item-description format-hotkeys-typora-intro",
         });
-        new obsidian.Setting(containerEl)
+        new ObsidianApi.Setting(containerEl)
             .setName("启用 Typora 显示模式")
             .setDesc("隐藏 Markdown 语法符号并套用下方排版。也可从编辑器工具栏开关。")
             .addToggle((toggle) => toggle.setValue(this.plugin.settings.typoraMode).onChange((value) => __awaiter(this, void 0, void 0, function* () {
@@ -707,21 +900,21 @@ class TyporaSettingsPanel {
             },
             format: (value) => `${value.toFixed(2)}em`,
         });
-        new obsidian.Setting(containerEl)
+        new ObsidianApi.Setting(containerEl)
             .setName("隐藏 Markdown 语法")
             .setDesc("非编辑行隐藏 #、**、`、> 等符号；有序列表的 1. 2. 始终保留")
             .addToggle((toggle) => toggle.setValue(this.plugin.settings.typora.hideSyntax).onChange((value) => __awaiter(this, void 0, void 0, function* () {
             this.plugin.settings.typora.hideSyntax = value;
             yield this.persist();
         })));
-        new obsidian.Setting(containerEl)
+        new ObsidianApi.Setting(containerEl)
             .setName("一级 / 二级标题下划线")
             .setDesc("对齐 Typora GitHub 主题的标题底部分隔线")
             .addToggle((toggle) => toggle.setValue(this.plugin.settings.typora.headingUnderline).onChange((value) => __awaiter(this, void 0, void 0, function* () {
             this.plugin.settings.typora.headingUnderline = value;
             yield this.persist();
         })));
-        new obsidian.Setting(containerEl)
+        new ObsidianApi.Setting(containerEl)
             .setName("高亮当前编辑行")
             .setDesc("光标所在行显示淡底，便于对照语法")
             .addToggle((toggle) => toggle.setValue(this.plugin.settings.typora.highlightActiveLine).onChange((value) => __awaiter(this, void 0, void 0, function* () {
@@ -849,7 +1042,7 @@ class TyporaSettingsPanel {
             },
             fallbackVar: "--text-normal",
         });
-        new obsidian.Setting(containerEl)
+        new ObsidianApi.Setting(containerEl)
             .setName("恢复默认样式")
             .setDesc("还原为当前主题的标题色（H1 紫、H2 青等）和默认排版")
             .addButton((btn) => btn.setButtonText("恢复默认").onClick(() => __awaiter(this, void 0, void 0, function* () {
@@ -896,7 +1089,7 @@ class TyporaSettingsPanel {
     }
     addHeadingStyleSetting(containerEl, level) {
         const heading = this.plugin.settings.typora.headings[level];
-        const setting = new obsidian.Setting(containerEl)
+        const setting = new ObsidianApi.Setting(containerEl)
             .setName(HEADING_LABELS[level])
             .setDesc(level === 1 ? "H1 默认紫色" : level === 2 ? "H2 默认青色" : `H${level} 字号与颜色`);
         setting.addSlider((slider) => slider
@@ -921,7 +1114,7 @@ class TyporaSettingsPanel {
         });
     }
     addSliderSetting(containerEl, options) {
-        const setting = new obsidian.Setting(containerEl).setName(options.name).setDesc(options.desc);
+        const setting = new ObsidianApi.Setting(containerEl).setName(options.name).setDesc(options.desc);
         setting.addSlider((slider) => slider
             .setLimits(options.min, options.max, options.step)
             .setValue(options.getValue())
@@ -937,7 +1130,7 @@ class TyporaSettingsPanel {
         });
     }
     addOptionalColorSetting(containerEl, options) {
-        const setting = new obsidian.Setting(containerEl).setName(options.name).setDesc(options.desc);
+        const setting = new ObsidianApi.Setting(containerEl).setName(options.name).setDesc(options.desc);
         this.attachColorPicker(setting, {
             getValue: options.getValue,
             setValue: options.setValue,
@@ -997,6 +1190,9 @@ const DEFAULT_SETTINGS = {
     toolbarButtonOrder: [
         "typora-mode",
         "typora-config",
+        "bold",
+        "flatten-to-bold",
+        "remove-red",
         "callout",
         "remove-blank-lines",
         "dunhao",
@@ -1017,12 +1213,15 @@ const TOOLBAR_BUTTON_LABELS = {
     "normalize-punctuation": "符号格式化",
     "typora-mode": "Typora 模式",
     "typora-config": "Typora配置",
+    bold: "加粗",
+    "flatten-to-bold": "格式转加粗",
+    "remove-red": "取消变红",
     callout: "Tips",
 };
 function formatLanguageLabel(language) {
     return language.trim() === "" ? "无" : language;
 }
-class FormatHotkeysSettingTab extends obsidian.PluginSettingTab {
+class FormatHotkeysSettingTab extends ObsidianApi.PluginSettingTab {
     constructor(app, plugin) {
         super(app, plugin);
         this.plugin = plugin;
@@ -1033,7 +1232,7 @@ class FormatHotkeysSettingTab extends obsidian.PluginSettingTab {
         containerEl.createEl("h2", { text: "Format Hotkeys 设置" });
         containerEl.createEl("h3", { text: "Typora 模式" });
         new TyporaSettingsPanel(this.plugin, containerEl, () => this.display()).render();
-        new obsidian.Setting(containerEl)
+        new ObsidianApi.Setting(containerEl)
             .setName("默认代码语言")
             .setDesc("Ctrl+Alt+D 创建代码块时使用的语言标识")
             .addText((text) => text
@@ -1049,7 +1248,7 @@ class FormatHotkeysSettingTab extends obsidian.PluginSettingTab {
             cls: "setting-item-description",
         });
         this.plugin.settings.codeLanguages.forEach((lang, index) => {
-            new obsidian.Setting(containerEl)
+            new ObsidianApi.Setting(containerEl)
                 .setName(formatLanguageLabel(lang))
                 .addText((text) => text.setValue(lang).onChange((value) => __awaiter(this, void 0, void 0, function* () {
                 this.plugin.settings.codeLanguages[index] = value.trim();
@@ -1074,7 +1273,7 @@ class FormatHotkeysSettingTab extends obsidian.PluginSettingTab {
                 this.display();
             })));
         });
-        new obsidian.Setting(containerEl).addButton((btn) => btn
+        new ObsidianApi.Setting(containerEl).addButton((btn) => btn
             .setButtonText("添加语言")
             .setCta()
             .onClick(() => __awaiter(this, void 0, void 0, function* () {
@@ -1085,7 +1284,7 @@ class FormatHotkeysSettingTab extends obsidian.PluginSettingTab {
     }
 }
 
-class LanguageInputModal extends obsidian.Modal {
+class LanguageInputModal extends ObsidianApi.Modal {
     constructor(app) {
         super(app);
         this.settled = false;
@@ -1139,7 +1338,7 @@ class LanguageInputModal extends obsidian.Modal {
     }
 }
 
-class ToolbarOrderModal extends obsidian.Modal {
+class ToolbarOrderModal extends ObsidianApi.Modal {
     constructor(app, plugin) {
         super(app);
         this.plugin = plugin;
@@ -1154,7 +1353,7 @@ class ToolbarOrderModal extends obsidian.Modal {
         });
         const listEl = contentEl.createDiv({ cls: "format-hotkeys-order-list" });
         this.renderList(listEl);
-        new obsidian.Setting(contentEl).addButton((btn) => btn.setButtonText("完成").setCta().onClick(() => __awaiter(this, void 0, void 0, function* () {
+        new ObsidianApi.Setting(contentEl).addButton((btn) => btn.setButtonText("完成").setCta().onClick(() => __awaiter(this, void 0, void 0, function* () {
             this.plugin.settings.toolbarButtonOrder = [...this.order];
             yield this.plugin.saveSettings();
             this.close();
@@ -1189,7 +1388,7 @@ class ToolbarOrderModal extends obsidian.Modal {
     }
 }
 
-class TyporaConfigModal extends obsidian.Modal {
+class TyporaConfigModal extends ObsidianApi.Modal {
     constructor(app, plugin) {
         super(app);
         this.plugin = plugin;
@@ -1224,7 +1423,7 @@ class EditorToolbarManager {
         this.plugin.registerEvent(this.plugin.app.workspace.on("layout-change", () => this.syncToolbar()));
     }
     refresh() {
-        const view = this.plugin.app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+        const view = this.plugin.app.workspace.getActiveViewOfType(ObsidianApi.MarkdownView);
         this.detach();
         if (view && view.getMode() === "source") {
             this.attachToView(view);
@@ -1232,7 +1431,7 @@ class EditorToolbarManager {
     }
     syncToolbar() {
         var _a;
-        const view = this.plugin.app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+        const view = this.plugin.app.workspace.getActiveViewOfType(ObsidianApi.MarkdownView);
         if (view === this.attachedView && ((_a = this.toolbarEl) === null || _a === void 0 ? void 0 : _a.isConnected)) {
             return;
         }
@@ -1261,6 +1460,15 @@ class EditorToolbarManager {
                 break;
             case "typora-config":
                 this.addTyporaConfigButton();
+                break;
+            case "bold":
+                this.addActionButton(view, "加粗", (editor) => toggleBold(editor));
+                break;
+            case "flatten-to-bold":
+                this.addActionButton(view, "格式转加粗", (editor) => flattenSelectionToBold(editor));
+                break;
+            case "remove-red":
+                this.addActionButton(view, "取消变红", (editor) => removeRedInSelection(editor));
                 break;
             case "remove-blank-lines":
                 this.addActionButton(view, "去除空格行", (editor) => removeBlankLinesInSelection(editor));
@@ -1341,7 +1549,7 @@ class EditorToolbarManager {
         });
     }
     showCalloutMenu(anchor, view) {
-        const menu = new obsidian.Menu();
+        const menu = new ObsidianApi.Menu();
         for (const option of CALLOUT_OPTIONS) {
             menu.addItem((item) => {
                 item.setTitle(option.label);
@@ -1382,7 +1590,7 @@ class EditorToolbarManager {
         });
     }
     showLanguageMenu(anchor) {
-        const menu = new obsidian.Menu();
+        const menu = new ObsidianApi.Menu();
         for (const lang of this.plugin.settings.codeLanguages) {
             const label = formatLanguageLabel(lang);
             const isActive = lang === this.plugin.settings.defaultCodeLanguage;
@@ -1444,12 +1652,12 @@ const refreshParenListEffect = state.StateEffect.define();
 const itemLineDeco = view.Decoration.line({ class: "typora-paren-list-item" });
 const bodyLineDeco = view.Decoration.line({ class: "typora-paren-list-body" });
 const markerDeco = view.Decoration.mark({ class: "typora-paren-list-marker" });
-function isTyporaModeOn() {
+function isTyporaModeOn$1() {
     return document.body.classList.contains("typora-mode-active");
 }
-function buildDecorations(view$1) {
+function buildDecorations$2(view$1) {
     const builder = new state.RangeSetBuilder();
-    if (!isTyporaModeOn()) {
+    if (!isTyporaModeOn$1()) {
         return view.Decoration.none;
     }
     const doc = view$1.state.doc;
@@ -1492,12 +1700,12 @@ function buildDecorations(view$1) {
 }
 const parenListPlugin = view.ViewPlugin.fromClass(class {
     constructor(view) {
-        this.decorations = buildDecorations(view);
+        this.decorations = buildDecorations$2(view);
     }
     update(update) {
         const forced = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshParenListEffect)));
         if (update.docChanged || update.viewportChanged || forced) {
-            this.decorations = buildDecorations(update.view);
+            this.decorations = buildDecorations$2(update.view);
         }
     }
 }, {
@@ -1510,7 +1718,7 @@ function createParenListExtension() {
 function refreshParenListDecorations(app) {
     app.workspace.iterateAllLeaves((leaf) => {
         const view = leaf.view;
-        if (!(view instanceof obsidian.MarkdownView) || view.getMode() !== "source") {
+        if (!(view instanceof ObsidianApi.MarkdownView) || view.getMode() !== "source") {
             return;
         }
         const cm = view.editor.cm;
@@ -1520,9 +1728,364 @@ function refreshParenListDecorations(app) {
     });
 }
 
+const ASM_LANGS = new Set(["arm", "armasm", "asm", "gas", "nasm", "objdump", "x86asm"]);
+const INSTRUCTIONS = new Set([
+    "push", "pop", "mov", "movb", "movw", "movl", "movq", "movzbl", "movzwl", "movsbl", "movswl",
+    "lea", "leal", "leaq",
+    "add", "addl", "addq", "adc", "sub", "subl", "subq", "sbb", "inc", "dec", "neg", "not",
+    "mul", "imul", "div", "idiv",
+    "and", "or", "xor", "shl", "shr", "sal", "sar", "rol", "ror",
+    "cmp", "test", "nop",
+    "jmp", "je", "jne", "jz", "jnz", "ja", "jae", "jb", "jbe", "jl", "jle", "jg", "jge", "js", "jns", "call", "ret", "leave",
+    "pushl", "popl", "int", "syscall",
+    "ldr", "ldrb", "ldrh", "ldp", "str", "strb", "strh", "stp",
+    "b", "bl", "bx", "blx", "beq", "bne", "blt", "bgt", "ble", "bge",
+    "svc", "mrs", "msr", "cbz", "cbnz",
+]);
+const REGISTERS = new Set([
+    "eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp", "eip",
+    "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp", "rip",
+    "ax", "bx", "cx", "dx", "si", "di", "bp", "sp", "ip",
+    "al", "ah", "bl", "bh", "cl", "ch", "dl", "dh",
+    "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+    "cs", "ds", "es", "fs", "gs", "ss",
+    "sp", "lr", "pc", "ip", "fp", "sl",
+]);
+for (let i = 0; i <= 31; i++) {
+    REGISTERS.add(`r${i}`);
+    REGISTERS.add(`w${i}`);
+    REGISTERS.add(`x${i}`);
+}
+const decoCache = new Map();
+function tokenMark(type) {
+    let deco = decoCache.get(type);
+    if (!deco) {
+        deco = view.Decoration.mark({ class: `cm-${type}` });
+        decoCache.set(type, deco);
+    }
+    return deco;
+}
+function isAsmLang(info) {
+    var _a;
+    const lang = (_a = info.trim().toLowerCase().split(/[\s:{]/)[0]) !== null && _a !== void 0 ? _a : "";
+    return ASM_LANGS.has(lang);
+}
+function fenceLang$1(text) {
+    const trimmed = text.trimStart();
+    if (!trimmed.startsWith("```")) {
+        return null;
+    }
+    return trimmed.slice(3).trim();
+}
+function tokenizeLine(from, text, builder) {
+    let i = 0;
+    const n = text.length;
+    const add = (start, end, type) => {
+        if (end > start) {
+            builder.add(from + start, from + end, tokenMark(type));
+        }
+    };
+    while (i < n) {
+        const ch = text[i];
+        if (ch === " " || ch === "\t") {
+            i++;
+            continue;
+        }
+        if (ch === ";" || (ch === "#" && (i === 0 || text[i - 1] === " " || text[i - 1] === "\t"))) {
+            add(i, n, "comment");
+            return;
+        }
+        if (ch === "<") {
+            const close = text.indexOf(">", i + 1);
+            if (close > i) {
+                add(i, close + 1, "def");
+                i = close + 1;
+                continue;
+            }
+        }
+        const rest = text.slice(i);
+        const addr = rest.match(/^[0-9a-fA-F]+:/);
+        if (addr) {
+            add(i, i + addr[0].length, "number");
+            i += addr[0].length;
+            continue;
+        }
+        const ident = rest.match(/^%?[A-Za-z_.][\w.]*/);
+        if (ident) {
+            const raw = ident[0];
+            const core = raw.startsWith("%") ? raw.slice(1).toLowerCase() : raw.toLowerCase();
+            if (raw.startsWith("%") || REGISTERS.has(core)) {
+                add(i, i + raw.length, "variable-2");
+            }
+            else if (INSTRUCTIONS.has(core)) {
+                add(i, i + raw.length, "keyword");
+            }
+            else if (/^[0-9a-fA-F]+$/.test(raw)) {
+                add(i, i + raw.length, "number");
+            }
+            else {
+                add(i, i + raw.length, "variable");
+            }
+            i += raw.length;
+            continue;
+        }
+        const num = rest.match(/^\$?(?:0x[0-9a-fA-F]+|\d+)\b/);
+        if (num) {
+            add(i, i + num[0].length, num[0].startsWith("$") ? "atom" : "number");
+            i += num[0].length;
+            continue;
+        }
+        if ("[],()*:+-".includes(ch)) {
+            add(i, i + 1, "operator");
+            i++;
+            continue;
+        }
+        i++;
+    }
+}
+function buildDecorations$1(view) {
+    const builder = new state.RangeSetBuilder();
+    const doc = view.state.doc;
+    let lang = null;
+    for (let lineNo = 1; lineNo <= doc.lines; lineNo++) {
+        const line = doc.line(lineNo);
+        const info = fenceLang$1(line.text);
+        if (info !== null) {
+            if (lang === null) {
+                lang = info;
+            }
+            else {
+                lang = null;
+            }
+            continue;
+        }
+        if (lang !== null && isAsmLang(lang)) {
+            tokenizeLine(line.from, line.text, builder);
+        }
+    }
+    return builder.finish();
+}
+const refreshAsmHighlightEffect = state.StateEffect.define();
+const asmHighlightPlugin = view.ViewPlugin.fromClass(class {
+    constructor(view) {
+        this.decorations = buildDecorations$1(view);
+    }
+    update(update) {
+        const forced = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshAsmHighlightEffect)));
+        if (update.docChanged || update.viewportChanged || forced) {
+            this.decorations = buildDecorations$1(update.view);
+        }
+    }
+}, {
+    decorations: (v) => v.decorations,
+});
+function createAsmHighlightExtension() {
+    return asmHighlightPlugin;
+}
+function refreshAsmHighlight(app) {
+    app.workspace.iterateAllLeaves((leaf) => {
+        const view = leaf.view;
+        if (!(view instanceof ObsidianApi.MarkdownView) || view.getMode() !== "source") {
+            return;
+        }
+        const cm = view.editor.cm;
+        if (cm) {
+            cm.dispatch({ effects: refreshAsmHighlightEffect.of(null) });
+        }
+    });
+}
+/** 阅读视图：给 Prism 补上 arm/asm 语法 */
+function registerAsmPrismLanguages(prism) {
+    const grammar = {
+        comment: /;[^\n]*/,
+        label: {
+            pattern: /<[^>]+>/,
+            alias: "function",
+        },
+        address: {
+            pattern: /\b[0-9a-fA-F]+:/,
+            alias: "number",
+        },
+        register: {
+            pattern: /%(?:[er]?[abcd]x|[er]?[sd]i|[er]?[sb]p|eip|rip|r(?:1[0-5]|\d)|[abcd][lh])\b|\b(?:r|w|x)(?:[12]?\d|3[01])\b|\b(?:sp|lr|pc)\b/i,
+            alias: "variable",
+        },
+        keyword: new RegExp(`\\b(?:${[...INSTRUCTIONS].join("|")})\\b`, "i"),
+        number: /\$?(?:0x[0-9a-fA-F]+|\b\d+\b|\b[0-9a-fA-F]{2}\b)/,
+        operator: /[[\](),*:+-]/,
+    };
+    for (const lang of ASM_LANGS) {
+        if (!prism.languages[lang]) {
+            prism.languages[lang] = grammar;
+        }
+    }
+}
+
+const refreshHtmlStyleEffect = state.StateEffect.define();
+const FONT_RE = /<font\b([^>]*)>([\s\S]*?)<\/font>/gi;
+const SPAN_RE = /<span\b([^>]*)>([\s\S]*?)<\/span>/gi;
+const hideTagDeco = view.Decoration.mark({ class: "typora-html-tag" });
+function isTyporaModeOn() {
+    return document.body.classList.contains("typora-mode-active");
+}
+function hideSyntaxOn() {
+    return document.body.classList.contains("typora-hide-syntax");
+}
+function colorFromAttrs(attrs) {
+    const quoted = attrs.match(/\bcolor\s*=\s*["']([^"']+)["']/i);
+    if (quoted) {
+        return quoted[1].trim();
+    }
+    const bare = attrs.match(/\bcolor\s*=\s*([#\w()]+)/i);
+    if (bare) {
+        return bare[1].trim();
+    }
+    const style = attrs.match(/\bstyle\s*=\s*["']([^"']+)["']/i);
+    if (style) {
+        const color = style[1].match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
+        if (color) {
+            return color[1].trim();
+        }
+    }
+    return null;
+}
+function hasBoldWeight(attrs) {
+    return /font-weight\s*:\s*(bold|[6-9]00)/i.test(attrs);
+}
+function displayColor(cssColor) {
+    return isRedColorValue(cssColor) ? "var(--typora-red)" : cssColor;
+}
+function innerStyle(attrs) {
+    const color = colorFromAttrs(attrs);
+    const parts = [];
+    if (color) {
+        parts.push(`color: ${displayColor(color)}`);
+    }
+    if (hasBoldWeight(attrs)) {
+        parts.push("font-weight: 700");
+    }
+    return parts.join("; ");
+}
+function collectHits(text, lineFrom) {
+    const hits = [];
+    const pushAll = (pattern) => {
+        var _a, _b;
+        const re = new RegExp(pattern.source, pattern.flags);
+        let match;
+        while ((match = re.exec(text))) {
+            const full = match[0];
+            const attrs = (_a = match[1]) !== null && _a !== void 0 ? _a : "";
+            const inner = (_b = match[2]) !== null && _b !== void 0 ? _b : "";
+            const style = innerStyle(attrs);
+            if (!style) {
+                continue;
+            }
+            const openLen = full.length - inner.length - closingLength(full);
+            const innerFrom = lineFrom + match.index + openLen;
+            const innerTo = innerFrom + inner.length;
+            hits.push({
+                from: lineFrom + match.index,
+                to: lineFrom + match.index + full.length,
+                innerFrom,
+                innerTo,
+                style,
+            });
+        }
+    };
+    pushAll(FONT_RE);
+    pushAll(SPAN_RE);
+    hits.sort((a, b) => a.from - b.from || a.to - b.to);
+    return hits;
+}
+function closingLength(full) {
+    const close = full.match(/<\/(?:font|span)>$/i);
+    return close ? close[0].length : 0;
+}
+function lineIsActive(view, lineFrom, lineTo) {
+    for (const range of view.state.selection.ranges) {
+        if (range.from <= lineTo && range.to >= lineFrom) {
+            return true;
+        }
+    }
+    return false;
+}
+function fenceLang(text) {
+    return text.trimStart().startsWith("```");
+}
+function buildDecorations(view$1) {
+    const builder = new state.RangeSetBuilder();
+    if (!isTyporaModeOn()) {
+        return view.Decoration.none;
+    }
+    const hideTags = hideSyntaxOn();
+    const doc = view$1.state.doc;
+    let inFence = false;
+    for (let lineNo = 1; lineNo <= doc.lines; lineNo++) {
+        const line = doc.line(lineNo);
+        if (fenceLang(line.text)) {
+            inFence = !inFence;
+            continue;
+        }
+        if (inFence) {
+            continue;
+        }
+        const hits = collectHits(line.text, line.from);
+        const active = lineIsActive(view$1, line.from, line.to);
+        const hide = hideTags && !active;
+        let lastTo = -1;
+        for (const hit of hits) {
+            if (hit.from < lastTo) {
+                continue;
+            }
+            lastTo = hit.to;
+            if (hide && hit.innerFrom > hit.from) {
+                builder.add(hit.from, hit.innerFrom, hideTagDeco);
+            }
+            if (hit.innerTo > hit.innerFrom) {
+                builder.add(hit.innerFrom, hit.innerTo, view.Decoration.mark({
+                    class: "typora-html-colored",
+                    attributes: { style: hit.style },
+                }));
+            }
+            if (hide && hit.to > hit.innerTo) {
+                builder.add(hit.innerTo, hit.to, hideTagDeco);
+            }
+        }
+    }
+    return builder.finish();
+}
+const htmlStylePlugin = view.ViewPlugin.fromClass(class {
+    constructor(view) {
+        this.decorations = buildDecorations(view);
+    }
+    update(update) {
+        const forced = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshHtmlStyleEffect)));
+        if (update.docChanged || update.selectionSet || update.viewportChanged || forced) {
+            this.decorations = buildDecorations(update.view);
+        }
+    }
+}, {
+    decorations: (v) => v.decorations,
+});
+function createHtmlStyleExtension() {
+    return htmlStylePlugin;
+}
+function refreshHtmlStyleDecorations(app) {
+    app.workspace.iterateAllLeaves((leaf) => {
+        const view = leaf.view;
+        if (!(view instanceof ObsidianApi.MarkdownView) || view.getMode() !== "source") {
+            return;
+        }
+        const cm = view.editor.cm;
+        if (cm) {
+            cm.dispatch({ effects: refreshHtmlStyleEffect.of(null) });
+        }
+    });
+}
+
 const RED_OPEN = '<font color="#ff0000">';
 const RED_CLOSE = "</font>";
-class FormatHotkeysPlugin extends obsidian.Plugin {
+class FormatHotkeysPlugin extends ObsidianApi.Plugin {
     constructor() {
         super(...arguments);
         this.settings = DEFAULT_SETTINGS;
@@ -1549,6 +2112,21 @@ class FormatHotkeysPlugin extends obsidian.Plugin {
                 name: "切换红色文字",
                 editorCallback: (editor) => toggleWrap(editor, RED_OPEN, RED_CLOSE),
                 hotkeys: [{ modifiers: ["Mod"], key: "r" }],
+            });
+            this.addCommand({
+                id: "toggle-bold",
+                name: "切换加粗",
+                editorCallback: (editor) => toggleBold(editor),
+            });
+            this.addCommand({
+                id: "flatten-to-bold",
+                name: "选区格式转为加粗",
+                editorCallback: (editor) => flattenSelectionToBold(editor),
+            });
+            this.addCommand({
+                id: "remove-red",
+                name: "取消选区变红",
+                editorCallback: (editor) => removeRedInSelection(editor),
             });
             this.addCommand({
                 id: "toggle-code-block",
@@ -1593,6 +2171,9 @@ class FormatHotkeysPlugin extends obsidian.Plugin {
             });
             this.addSettingTab(new FormatHotkeysSettingTab(this.app, this));
             this.registerEditorExtension(createParenListExtension());
+            this.registerEditorExtension(createAsmHighlightExtension());
+            this.registerEditorExtension(createHtmlStyleExtension());
+            void this.registerPrismAsmLanguages();
             this.toolbarManager = new EditorToolbarManager(this);
             this.toolbarManager.attach();
             this.applyTyporaMode();
@@ -1613,6 +2194,24 @@ class FormatHotkeysPlugin extends obsidian.Plugin {
         bodyEl.toggleClass("typora-mode-active", this.settings.typoraMode);
         bodyEl.toggleClass("typora-hide-syntax", this.settings.typoraMode && this.settings.typora.hideSyntax);
         refreshParenListDecorations(this.app);
+        refreshAsmHighlight(this.app);
+        refreshHtmlStyleDecorations(this.app);
+    }
+    registerPrismAsmLanguages() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const api = ObsidianApi__namespace;
+                const prism = typeof api.loadPrism === "function"
+                    ? yield api.loadPrism()
+                    : window.Prism;
+                if (prism === null || prism === void 0 ? void 0 : prism.languages) {
+                    registerAsmPrismLanguages(prism);
+                }
+            }
+            catch (_a) {
+                // Prism 不可用时源码视图仍由 CodeMirror 装饰高亮
+            }
+        });
     }
     loadSettings() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -1628,6 +2227,9 @@ class FormatHotkeysPlugin extends obsidian.Plugin {
             const validIds = new Set([
                 "typora-mode",
                 "typora-config",
+                "bold",
+                "flatten-to-bold",
+                "remove-red",
                 "callout",
                 "remove-blank-lines",
                 "dunhao",

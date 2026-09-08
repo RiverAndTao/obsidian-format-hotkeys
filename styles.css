@@ -26,11 +26,41 @@
     --typora-table-border: #dfe2e5;
     --typora-table-stripe: #f8f8f8;
     --typora-table-cell-padding: 6px 13px;
+    --typora-red: #d1242f;
+    --typora-font: "Open Sans", "Clear Sans", "Helvetica Neue", Helvetica, Arial, "Segoe UI Emoji", "SF Pro", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    /* Typora GitHub / CodeMirror 默认 token 色 */
+    --typora-cm-keyword: #708;
+    --typora-cm-atom: #219;
+    --typora-cm-number: #164;
+    --typora-cm-def: #00f;
+    --typora-cm-variable: var(--text-normal);
+    --typora-cm-variable-2: #05a;
+    --typora-cm-variable-3: #085;
+    --typora-cm-string: #a11;
+    --typora-cm-operator: #981a1a;
+    --typora-cm-comment: #a50;
+    --typora-cm-builtin: #30a;
+    --typora-cm-meta: #555;
+    --typora-cm-property: var(--text-normal);
 }
 
 body.theme-dark {
     --typora-table-border: #474d54;
     --typora-table-stripe: color-mix(in srgb, var(--background-primary) 88%, #fff 12%);
+    --typora-red: #ff7b72;
+    --typora-cm-keyword: #c88fd0;
+    --typora-cm-atom: #84b6cb;
+    --typora-cm-number: #64ab8f;
+    --typora-cm-def: #8d8df0;
+    --typora-cm-variable: #b8bfc6;
+    --typora-cm-variable-2: #9fbad5;
+    --typora-cm-variable-3: #1cc685;
+    --typora-cm-string: #d26b6b;
+    --typora-cm-operator: #b8bfc6;
+    --typora-cm-comment: #da924a;
+    --typora-cm-builtin: #f3b3f8;
+    --typora-cm-meta: #b7b3b3;
+    --typora-cm-property: #b8bfc6;
 }
 
 /* ============================================================
@@ -46,11 +76,48 @@ body.typora-mode-active .markdown-source-view.mod-cm6 {
     --h4-size: var(--typora-h4-size);
     --h5-size: var(--typora-h5-size);
     --h6-size: var(--typora-h6-size);
+    --font-text: var(--typora-font);
+    --font-text-theme: var(--typora-font);
+    --font-editor: var(--typora-font);
+    --font-editor-theme: var(--typora-font);
+    font-family: var(--typora-font);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-content,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line,
+body.typora-mode-active .markdown-preview-view,
+body.typora-mode-active .markdown-preview-view .markdown-preview-sizer {
+    font-family: var(--typora-font);
+    -webkit-font-smoothing: antialiased;
 }
 
 /* =====================================================
    第一部分：隐藏非活跃行的 Markdown 语法符号
    ===================================================== */
+
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
+.cm-line:not(.cm-active) .typora-html-tag {
+    display: none !important;
+}
+
+body.typora-mode-active .markdown-rendered font[color="#ff0000"],
+body.typora-mode-active .markdown-rendered font[color="#FF0000"],
+body.typora-mode-active .markdown-rendered font[color="red"],
+body.typora-mode-active .markdown-rendered font[color="Red"],
+body.typora-mode-active .markdown-rendered span[style*="color: red"],
+body.typora-mode-active .markdown-rendered span[style*="color:red"],
+body.typora-mode-active .markdown-rendered span[style*="color: #ff0000"],
+body.typora-mode-active .markdown-rendered span[style*="color:#ff0000"] {
+    color: var(--typora-red) !important;
+}
+
+body.typora-mode-active .markdown-rendered font[color="#ff0000"],
+body.typora-mode-active .markdown-rendered font[color="#FF0000"],
+body.typora-mode-active .markdown-rendered font[color="red"] {
+    font-weight: inherit;
+}
 
 body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .cm-line:not(.cm-active)
 :is(
@@ -560,6 +627,57 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin {
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-end {
     margin-bottom: 0.8em;
     border-radius: 0 0 3px 3px;
+}
+
+/* Typora GitHub / Night：代码块 token 色（含 arm/asm 装饰） */
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-keyword,
+body.typora-mode-active .markdown-rendered pre code .token.keyword {
+    color: var(--typora-cm-keyword);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-atom,
+body.typora-mode-active .markdown-rendered pre code .token.boolean,
+body.typora-mode-active .markdown-rendered pre code .token.constant {
+    color: var(--typora-cm-atom);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-number,
+body.typora-mode-active .markdown-rendered pre code .token.number {
+    color: var(--typora-cm-number);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-def,
+body.typora-mode-active .markdown-rendered pre code .token.function {
+    color: var(--typora-cm-def);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-variable {
+    color: var(--typora-cm-variable);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-variable-2,
+body.typora-mode-active .markdown-rendered pre code .token.variable {
+    color: var(--typora-cm-variable-2);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-variable-3 {
+    color: var(--typora-cm-variable-3);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-string,
+body.typora-mode-active .markdown-rendered pre code .token.string {
+    color: var(--typora-cm-string);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-operator,
+body.typora-mode-active .markdown-rendered pre code .token.operator {
+    color: var(--typora-cm-operator);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-comment,
+body.typora-mode-active .markdown-rendered pre code .token.comment {
+    color: var(--typora-cm-comment);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-builtin {
+    color: var(--typora-cm-builtin);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-meta,
+body.typora-mode-active .markdown-rendered pre code .token.address {
+    color: var(--typora-cm-meta);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-property {
+    color: var(--typora-cm-property);
 }
 
 /* =====================================================

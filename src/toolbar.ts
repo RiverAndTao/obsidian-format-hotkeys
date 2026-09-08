@@ -1,6 +1,6 @@
 import { Editor, MarkdownView, Menu } from "obsidian";
 import type FormatHotkeysPlugin from "./main";
-import { insertTextAtCursor, removeBlankLinesInSelection, convertBlockMathToInline, convertBlockMathToInlineAndJoin, normalizePunctuation, wrapCallout, CALLOUT_OPTIONS, CalloutType } from "./editor-utils";
+import { insertTextAtCursor, removeBlankLinesInSelection, convertBlockMathToInline, convertBlockMathToInlineAndJoin, normalizePunctuation, wrapCallout, CALLOUT_OPTIONS, CalloutType, toggleBold, flattenSelectionToBold, removeRedInSelection } from "./editor-utils";
 import { LanguageInputModal } from "./language-input-modal";
 import { formatLanguageLabel, ToolbarButtonId } from "./settings";
 import { ToolbarOrderModal } from "./toolbar-order-modal";
@@ -73,6 +73,15 @@ export class EditorToolbarManager {
                 break;
             case "typora-config":
                 this.addTyporaConfigButton();
+                break;
+            case "bold":
+                this.addActionButton(view, "加粗", (editor) => toggleBold(editor));
+                break;
+            case "flatten-to-bold":
+                this.addActionButton(view, "格式转加粗", (editor) => flattenSelectionToBold(editor));
+                break;
+            case "remove-red":
+                this.addActionButton(view, "取消变红", (editor) => removeRedInSelection(editor));
                 break;
             case "remove-blank-lines":
                 this.addActionButton(view, "去除空格行", (editor) => removeBlankLinesInSelection(editor));

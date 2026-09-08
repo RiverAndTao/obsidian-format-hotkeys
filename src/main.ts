@@ -1,4 +1,5 @@
 import { Editor, Plugin } from "obsidian";
+import * as ObsidianApi from "obsidian";
 import {
     toggleHeading,
     toggleWrap,
@@ -9,12 +10,17 @@ import {
     convertBlockMathToInlineAndJoin,
     normalizePunctuation,
     wrapCallout,
+    toggleBold,
+    flattenSelectionToBold,
+    removeRedInSelection,
 } from "./editor-utils";
 import { DEFAULT_SETTINGS, FormatHotkeysSettingTab, FormatHotkeysSettings, ToolbarButtonId } from "./settings";
 import { EditorToolbarManager } from "./toolbar";
 import { TyporaConfigModal } from "./typora-config-modal";
 import { applyTyporaStyleVars, clearTyporaStyleVars, mergeTyporaStyle } from "./typora-style";
 import { createParenListExtension, refreshParenListDecorations } from "./typora-paren-list";
+import { createAsmHighlightExtension, refreshAsmHighlight, registerAsmPrismLanguages } from "./asm-highlight";
+import { createHtmlStyleExtension, refreshHtmlStyleDecorations } from "./typora-html-style";
 
 const RED_OPEN = '<font color="#ff0000">';
 const RED_CLOSE = "</font>";
@@ -47,6 +53,24 @@ export default class FormatHotkeysPlugin extends Plugin {
             name: "切换红色文字",
             editorCallback: (editor: Editor) => toggleWrap(editor, RED_OPEN, RED_CLOSE),
             hotkeys: [{ modifiers: ["Mod"], key: "r" }],
+        });
+
+        this.addCommand({
+            id: "toggle-bold",
+            name: "切换加粗",
+            editorCallback: (editor: Editor) => toggleBold(editor),
+        });
+
+        this.addCommand({
+            id: "flatten-to-bold",
+            name: "选区格式转为加粗",
+            editorCallback: (editor: Editor) => flattenSelectionToBold(editor),
+        });
+
+        this.addCommand({
+            id: "remove-red",
+            name: "取消选区变红",
+            editorCallback: (editor: Editor) => removeRedInSelection(editor),
         });
 
         this.addCommand({
@@ -102,6 +126,9 @@ export default class FormatHotkeysPlugin extends Plugin {
         this.addSettingTab(new FormatHotkeysSettingTab(this.app, this));
 
         this.registerEditorExtension(createParenListExtension());
+        this.registerEditorExtension(createAsmHighlightExtension());
+        this.registerEditorExtension(createHtmlStyleExtension());
+        void this.registerPrismAsmLanguages();
 
         this.toolbarManager = new EditorToolbarManager(this);
         this.toolbarManager.attach();
@@ -125,6 +152,25 @@ export default class FormatHotkeysPlugin extends Plugin {
         bodyEl.toggleClass("typora-mode-active", this.settings.typoraMode);
         bodyEl.toggleClass("typora-hide-syntax", this.settings.typoraMode && this.settings.typora.hideSyntax);
         refreshParenListDecorations(this.app);
+        refreshAsmHighlight(this.app);
+        refreshHtmlStyleDecorations(this.app);
+    }
+
+    private async registerPrismAsmLanguages(): Promise<void> {
+        try {
+            const api = ObsidianApi as unknown as {
+                loadPrism?: () => Promise<{ languages: Record<string, unknown> }>;
+            };
+            const prism =
+                typeof api.loadPrism === "function"
+                    ? await api.loadPrism()
+                    : (window as unknown as { Prism?: { languages: Record<string, unknown> } }).Prism;
+            if (prism?.languages) {
+                registerAsmPrismLanguages(prism);
+            }
+        } catch {
+            // Prism 不可用时源码视图仍由 CodeMirror 装饰高亮
+        }
     }
 
     async loadSettings() {
@@ -148,6 +194,9 @@ export default class FormatHotkeysPlugin extends Plugin {
         const validIds = new Set<ToolbarButtonId>([
             "typora-mode",
             "typora-config",
+            "bold",
+            "flatten-to-bold",
+            "remove-red",
             "callout",
             "remove-blank-lines",
             "dunhao",

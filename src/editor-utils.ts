@@ -1,4 +1,17 @@
 import { Editor } from "obsidian";
+import { flattenInlineToBold, selectionAlreadyBoldWrapped, stripRedMarkup } from "./inline-format";
+
+const UNDO_ORIGIN = "format-hotkeys";
+
+/** 一次替换，进入同一个撤销步 */
+export function replaceRangeOnce(
+    editor: Editor,
+    replacement: string,
+    from = editor.getCursor("from"),
+    to = editor.getCursor("to")
+): void {
+    editor.replaceRange(replacement, from, to, UNDO_ORIGIN);
+}
 
 /** 切换包裹格式：已包裹则取消，否则添加 */
 export function toggleWrap(editor: Editor, open: string, close: string): void {
@@ -7,7 +20,7 @@ export function toggleWrap(editor: Editor, open: string, close: string): void {
     const to = editor.getCursor("to");
 
     if (from.line !== to.line) {
-        editor.replaceSelection(open + selected + close);
+        editor.replaceSelection(open + selected + close, UNDO_ORIGIN);
         if (selected.length > 0) {
             editor.setSelection(
                 { line: from.line, ch: from.ch + open.length },
@@ -29,7 +42,7 @@ export function toggleWrap(editor: Editor, open: string, close: string): void {
         line.substring(beforeStart, from.ch) === open &&
         line.substring(to.ch, afterEnd) === close
     ) {
-        editor.replaceRange(selected, { line: from.line, ch: beforeStart }, { line: to.line, ch: afterEnd });
+        editor.replaceRange(selected, { line: from.line, ch: beforeStart }, { line: to.line, ch: afterEnd }, UNDO_ORIGIN);
         editor.setSelection(
             { line: from.line, ch: beforeStart },
             { line: to.line, ch: beforeStart + selected.length }
@@ -37,7 +50,7 @@ export function toggleWrap(editor: Editor, open: string, close: string): void {
         return;
     }
 
-    editor.replaceSelection(open + selected + close);
+    editor.replaceSelection(open + selected + close, UNDO_ORIGIN);
     if (selected.length > 0) {
         editor.setSelection(
             { line: from.line, ch: from.ch + open.length },
@@ -426,3 +439,47 @@ export function wrapCallout(editor: Editor, type: CalloutType = "tip"): void {
     );
     editor.setCursor({ line: from.line + 1, ch: body.length });
 }
+
+/** 切换选区 Markdown 加粗 `** **` */
+export function toggleBold(editor: Editor): void {
+    const selected = editor.getSelection();
+    if (selected.length > 0 && selectionAlreadyBoldWrapped(selected)) {
+        const inner = selected.slice(2, -2);
+        const from = editor.getCursor("from");
+        const to = editor.getCursor("to");
+        replaceRangeOnce(editor, inner, from, to);
+        editor.setSelection(from, { line: from.line, ch: from.ch + inner.length });
+        return;
+    }
+    toggleWrap(editor, "**", "**");
+}
+
+function rewriteSelection(editor: Editor, rewrite: (text: string) => string): void {
+    const selected = editor.getSelection();
+    if (selected.length === 0) {
+        return;
+    }
+    const next = rewrite(selected);
+    if (next === selected) {
+        return;
+    }
+    const from = editor.getCursor("from");
+    replaceRangeOnce(editor, next, from, editor.getCursor("to"));
+    const lines = next.split("\n");
+    const end =
+        lines.length === 1
+            ? { line: from.line, ch: from.ch + next.length }
+            : { line: from.line + lines.length - 1, ch: lines[lines.length - 1].length };
+    editor.setSelection(from, end);
+}
+
+/** 选区内 HTML 变色 / 下划线等全部变成 **加粗** */
+export function flattenSelectionToBold(editor: Editor): void {
+    rewriteSelection(editor, flattenInlineToBold);
+}
+
+/** 去掉选区内变红；带粗体的红字保留为 **加粗** */
+export function removeRedInSelection(editor: Editor): void {
+    rewriteSelection(editor, stripRedMarkup);
+}
+

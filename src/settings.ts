@@ -12,7 +12,10 @@ export type ToolbarButtonId =
     | "normalize-punctuation"
     | "typora-mode"
     | "typora-config"
-    | "callout";
+    | "callout"
+    | "bold"
+    | "flatten-to-bold"
+    | "remove-red";
 
 export interface FormatHotkeysSettings {
     defaultCodeLanguage: string;
@@ -28,6 +31,9 @@ export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
     toolbarButtonOrder: [
         "typora-mode",
         "typora-config",
+        "bold",
+        "flatten-to-bold",
+        "remove-red",
         "callout",
         "remove-blank-lines",
         "dunhao",
@@ -49,6 +55,9 @@ export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
     "normalize-punctuation": "符号格式化",
     "typora-mode": "Typora 模式",
     "typora-config": "Typora配置",
+    bold: "加粗",
+    "flatten-to-bold": "格式转加粗",
+    "remove-red": "取消变红",
     callout: "Tips",
 };
 
