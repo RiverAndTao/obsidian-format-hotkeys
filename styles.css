@@ -102,6 +102,18 @@ body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
     display: none !important;
 }
 
+body.typora-mode-active .markdown-source-view.mod-cm6 .typora-html-colored {
+    display: inline !important;
+}
+
+body.typora-mode-active .markdown-rendered font,
+body.typora-mode-active .markdown-preview-view font,
+body.typora-mode-active .cm-html-embed:not(:has(table)) {
+    display: inline !important;
+    width: auto !important;
+    max-width: none !important;
+}
+
 body.typora-mode-active .markdown-rendered font[color="#ff0000"],
 body.typora-mode-active .markdown-rendered font[color="#FF0000"],
 body.typora-mode-active .markdown-rendered font[color="red"],
@@ -769,7 +781,7 @@ body.typora-mode-active :is(
     .cm-table-widget,
     .cm-embed-block.cm-table-widget,
     .cm-table-widget .table-wrapper,
-    .cm-html-embed,
+    .cm-html-embed:has(table),
     .el-table,
     .table-wrapper,
     div:has(> table)
