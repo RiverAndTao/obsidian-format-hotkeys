@@ -15,8 +15,6 @@ th, td {
     padding: 6px 13px;
     font-weight: 400;
     vertical-align: middle;
-}
-tr:not(.${TABLE_ROW_STRIPE_CLASS}) > :is(th, td) {
     background-color: var(--typora-table-base, var(--background-primary, #fff)) !important;
 }
 tr.${TABLE_ROW_STRIPE_CLASS} > :is(th, td) {
@@ -33,6 +31,14 @@ function readCssVar(name: string, fallback: string): string {
     return value || fallback;
 }
 
+/**
+ * Typora / GitHub 斑马规则：
+ * - 表头有浅底
+ * - 第一行数据无底
+ * - 第二行数据有浅底，之后交替
+ *
+ * Obsidian 管道表通常是 thead+tbody；部分 HTML 表则是全部 tr 平铺。
+ */
 function stripeRows(table: HTMLTableElement): void {
     table.querySelectorAll(`tr.${TABLE_ROW_STRIPE_CLASS}`).forEach((row) => {
         row.classList.remove(TABLE_ROW_STRIPE_CLASS);
@@ -42,17 +48,27 @@ function stripeRows(table: HTMLTableElement): void {
         return;
     }
 
-    const bodyRows: HTMLTableRowElement[] = [];
-    if (table.tBodies.length > 0) {
+    const headRows = table.tHead ? Array.from(table.tHead.rows) : [];
+    if (headRows.length > 0) {
+        for (const row of headRows) {
+            row.classList.add(TABLE_ROW_STRIPE_CLASS);
+        }
+        const bodyRows: HTMLTableRowElement[] = [];
         for (const tbody of Array.from(table.tBodies)) {
             bodyRows.push(...Array.from(tbody.rows));
         }
-    } else {
-        bodyRows.push(...Array.from(table.rows));
+        bodyRows.forEach((row, index) => {
+            // 第 2、4、6… 行数据（1-based even）
+            if ((index + 1) % 2 === 0) {
+                row.classList.add(TABLE_ROW_STRIPE_CLASS);
+            }
+        });
+        return;
     }
 
-    bodyRows.forEach((row, index) => {
-        if ((index + 1) % 2 === 0) {
+    // 无 thead：第 1、3、5… 行（含表头）上色，等价于「表头 + 偶数数据行」
+    Array.from(table.rows).forEach((row, index) => {
+        if (index % 2 === 0) {
             row.classList.add(TABLE_ROW_STRIPE_CLASS);
         }
     });
@@ -82,7 +98,7 @@ function stripeRoot(root: ParentNode): void {
 }
 
 function stripeHtmlEmbedIframes(root: ParentNode = document): void {
-    root.querySelectorAll(".cm-html-embed iframe").forEach((node) => {
+    root.querySelectorAll(".cm-html-embed iframe, .cm-embed-block iframe").forEach((node) => {
         if (!(node instanceof HTMLIFrameElement)) {
             return;
         }
@@ -100,12 +116,10 @@ function stripeHtmlEmbedIframes(root: ParentNode = document): void {
 }
 
 export function refreshTableStripes(_app?: App, root: ParentNode = document): void {
-    if (!isTyporaModeOn()) {
-        stripeRoot(root);
-        return;
-    }
     stripeRoot(root);
-    stripeHtmlEmbedIframes(root);
+    if (isTyporaModeOn()) {
+        stripeHtmlEmbedIframes(root);
+    }
 }
 
 let debounceTimer: number | undefined;
