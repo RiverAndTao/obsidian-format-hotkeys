@@ -21,6 +21,11 @@ import { applyTyporaStyleVars, clearTyporaStyleVars, mergeTyporaStyle } from "./
 import { createParenListExtension, refreshParenListDecorations } from "./typora-paren-list";
 import { createAsmHighlightExtension, refreshAsmHighlight, registerAsmPrismLanguages } from "./asm-highlight";
 import { createHtmlStyleExtension, refreshHtmlStyleDecorations } from "./typora-html-style";
+import {
+    attachTableStripeObserver,
+    refreshTableStripes,
+    scheduleTableStripeRefresh,
+} from "./typora-table-stripe";
 
 const RED_OPEN = '<font color="#ff0000">';
 const RED_CLOSE = "</font>";
@@ -28,6 +33,7 @@ const RED_CLOSE = "</font>";
 export default class FormatHotkeysPlugin extends Plugin {
     settings: FormatHotkeysSettings = DEFAULT_SETTINGS;
     private toolbarManager!: EditorToolbarManager;
+    private tableStripeObserver?: MutationObserver;
 
     async onload() {
         await this.loadSettings();
@@ -134,6 +140,7 @@ export default class FormatHotkeysPlugin extends Plugin {
         this.toolbarManager.attach();
 
         this.applyTyporaMode();
+        this.setupTableStripeRefresh();
     }
 
     onunload(): void {
@@ -141,6 +148,8 @@ export default class FormatHotkeysPlugin extends Plugin {
         bodyEl.removeClass("typora-mode-active");
         bodyEl.removeClass("typora-hide-syntax");
         clearTyporaStyleVars(bodyEl);
+        this.tableStripeObserver?.disconnect();
+        refreshTableStripes(this.app);
     }
 
     /**
@@ -154,6 +163,24 @@ export default class FormatHotkeysPlugin extends Plugin {
         refreshParenListDecorations(this.app);
         refreshAsmHighlight(this.app);
         refreshHtmlStyleDecorations(this.app);
+        scheduleTableStripeRefresh(this.app);
+    }
+
+    private setupTableStripeRefresh(): void {
+        this.registerEvent(
+            this.app.workspace.on("layout-change", () => scheduleTableStripeRefresh(this.app))
+        );
+        this.registerEvent(
+            this.app.workspace.on("active-leaf-change", () => scheduleTableStripeRefresh(this.app))
+        );
+        this.app.workspace.onLayoutReady(() => {
+            const workspaceEl = document.querySelector(".workspace");
+            if (workspaceEl instanceof HTMLElement) {
+                this.tableStripeObserver?.disconnect();
+                this.tableStripeObserver = attachTableStripeObserver(this.app, workspaceEl);
+            }
+            scheduleTableStripeRefresh(this.app);
+        });
     }
 
     private async registerPrismAsmLanguages(): Promise<void> {

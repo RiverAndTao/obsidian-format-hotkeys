@@ -25,6 +25,7 @@
     /* 表格：对齐 Typora GitHub（浅色）/ Night（全宽），隔行填充随主题切换 */
     --typora-table-border: #dfe2e5;
     --typora-table-stripe: #f8f8f8;
+    --typora-table-base: var(--background-primary);
     --typora-table-cell-padding: 6px 13px;
     --typora-red: #d1242f;
     --typora-font: "Open Sans", "Clear Sans", "Helvetica Neue", Helvetica, Arial, "Segoe UI Emoji", "SF Pro", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
@@ -46,7 +47,8 @@
 
 body.theme-dark {
     --typora-table-border: #474d54;
-    --typora-table-stripe: color-mix(in srgb, var(--background-primary) 88%, #fff 12%);
+    --typora-table-stripe: rgba(255, 255, 255, 0.06);
+    --typora-table-base: var(--background-primary);
     --typora-red: #ff7b72;
     --typora-cm-keyword: #c88fd0;
     --typora-cm-atom: #84b6cb;
@@ -759,8 +761,14 @@ body.typora-mode-active {
     --table-header-border-color: var(--typora-table-border);
     --table-row-alt-background: var(--typora-table-stripe);
     --table-row-alt-background-hover: var(--typora-table-stripe);
-    --table-column-alt-background: inherit;
+    --table-column-alt-background: transparent;
     --table-row-background-hover: transparent;
+}
+
+body.typora-mode-active .cm-table-widget,
+body.typora-mode-active .cm-embed-block:has(table) {
+    --table-column-alt-background: transparent !important;
+    --table-row-alt-background: var(--typora-table-stripe) !important;
 }
 
 body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
@@ -780,6 +788,7 @@ body.typora-mode-active :is(
 ) :is(
     .cm-table-widget,
     .cm-embed-block.cm-table-widget,
+    .cm-embed-block:has(table),
     .cm-table-widget .table-wrapper,
     .cm-html-embed:has(table),
     .el-table,
@@ -796,6 +805,7 @@ body.typora-mode-active :is(
     .markdown-rendered table,
     .markdown-preview-view table,
     .markdown-source-view.mod-cm6 table,
+    .cm-embed-block table,
     .cm-table-widget table,
     .cm-html-embed table
 ),
@@ -834,39 +844,109 @@ body.typora-mode-active :is(
     background-color: inherit;
 }
 
-/* 行斑马：直接涂单元格，避免被 --table-column-alt-background 列条纹盖掉 */
-body.typora-mode-active .markdown-rendered table tbody tr:nth-child(odd) > :is(th, td),
-body.typora-mode-active .markdown-preview-view table tbody tr:nth-child(odd) > :is(th, td),
-body.typora-mode-active .markdown-source-view.mod-cm6 table tbody tr:nth-child(odd) > :is(th, td),
-body.typora-mode-active .cm-table-widget table tbody tr:nth-child(odd) > :is(th, td),
-body.typora-mode-active .cm-html-embed table tbody tr:nth-child(odd) > :is(th, td),
-body.typora-mode-active .markdown-rendered table > tr:nth-child(odd) > :is(th, td),
-body.typora-mode-active .cm-html-embed table > tr:nth-child(odd) > :is(th, td),
+/*
+ * 行斑马：JS 会给偶数行加 .format-hotkeys-table-row-stripe；
+ * CSS 再兜底 nth-child，覆盖 Markdown 管道表与 HTML <table><tr> 两种结构。
+ */
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .markdown-preview-view,
+    .markdown-source-view.mod-cm6,
+    .cm-embed-block,
+    .cm-table-widget,
+    .cm-html-embed
+) table tr:not(.format-hotkeys-table-row-stripe) > :is(th, td),
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .markdown-preview-view,
+    .markdown-source-view.mod-cm6,
+    .cm-embed-block,
+    .cm-table-widget,
+    .cm-html-embed
+) table tbody tr:nth-child(odd) > :is(th, td),
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .markdown-preview-view,
+    .markdown-source-view.mod-cm6,
+    .cm-embed-block,
+    .cm-table-widget,
+    .cm-html-embed
+) table > tr:nth-child(odd) > :is(th, td),
 .format-hotkeys-typora-preview table tbody tr:nth-child(odd) > :is(th, td) {
-    background-color: transparent !important;
+    background-color: var(--typora-table-base, var(--background-primary)) !important;
 }
 
-body.typora-mode-active .markdown-rendered table thead > tr > :is(th, td),
-body.typora-mode-active .markdown-preview-view table thead > tr > :is(th, td),
-body.typora-mode-active .markdown-source-view.mod-cm6 table thead > tr > :is(th, td),
-body.typora-mode-active .cm-table-widget table thead > tr > :is(th, td),
-body.typora-mode-active .markdown-rendered table tbody tr:nth-child(even) > :is(th, td),
-body.typora-mode-active .markdown-preview-view table tbody tr:nth-child(even) > :is(th, td),
-body.typora-mode-active .markdown-source-view.mod-cm6 table tbody tr:nth-child(even) > :is(th, td),
-body.typora-mode-active .cm-table-widget table tbody tr:nth-child(even) > :is(th, td),
-body.typora-mode-active .cm-html-embed table tbody tr:nth-child(even) > :is(th, td),
-body.typora-mode-active .markdown-rendered table > tr:nth-child(even) > :is(th, td),
-body.typora-mode-active .cm-html-embed table > tr:nth-child(even) > :is(th, td),
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .markdown-preview-view,
+    .markdown-source-view.mod-cm6,
+    .cm-embed-block,
+    .cm-table-widget,
+    .cm-html-embed
+) table tr.format-hotkeys-table-row-stripe > :is(th, td),
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .markdown-preview-view,
+    .markdown-source-view.mod-cm6,
+    .cm-embed-block,
+    .cm-table-widget,
+    .cm-html-embed
+) table thead > tr > :is(th, td),
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .markdown-preview-view,
+    .markdown-source-view.mod-cm6,
+    .cm-embed-block,
+    .cm-table-widget,
+    .cm-html-embed
+) table tbody tr:nth-child(even) > :is(th, td),
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .markdown-preview-view,
+    .markdown-source-view.mod-cm6,
+    .cm-embed-block,
+    .cm-table-widget,
+    .cm-html-embed
+) table > tr:nth-child(even) > :is(th, td),
 .format-hotkeys-typora-preview table thead > tr > :is(th, td),
 .format-hotkeys-typora-preview table tbody tr:nth-child(even) > :is(th, td) {
     background-color: var(--typora-table-stripe) !important;
 }
 
-body.typora-mode-active .markdown-rendered table tbody tr:nth-child(even) .table-cell-wrapper,
-body.typora-mode-active .cm-table-widget table tbody tr:nth-child(even) .table-cell-wrapper,
-body.typora-mode-active .markdown-rendered table thead .table-cell-wrapper,
-body.typora-mode-active .cm-table-widget table thead .table-cell-wrapper {
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .cm-table-widget,
+    .cm-html-embed,
+    .cm-embed-block
+) table tr.format-hotkeys-table-row-stripe .table-cell-wrapper,
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .cm-table-widget,
+    .cm-html-embed,
+    .cm-embed-block
+) table tbody tr:nth-child(even) .table-cell-wrapper,
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .cm-table-widget,
+    .cm-html-embed,
+    .cm-embed-block
+) table thead .table-cell-wrapper {
     background-color: var(--typora-table-stripe) !important;
+}
+
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .cm-table-widget,
+    .cm-html-embed,
+    .cm-embed-block
+) table tr:not(.format-hotkeys-table-row-stripe) .table-cell-wrapper,
+body.typora-mode-active :is(
+    .markdown-rendered,
+    .cm-table-widget,
+    .cm-html-embed,
+    .cm-embed-block
+) table tbody tr:nth-child(odd) .table-cell-wrapper {
+    background-color: var(--typora-table-base, var(--background-primary)) !important;
 }
 
 /* =====================================================

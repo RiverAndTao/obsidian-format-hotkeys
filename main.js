@@ -1652,12 +1652,12 @@ const refreshParenListEffect = state.StateEffect.define();
 const itemLineDeco = view.Decoration.line({ class: "typora-paren-list-item" });
 const bodyLineDeco = view.Decoration.line({ class: "typora-paren-list-body" });
 const markerDeco = view.Decoration.mark({ class: "typora-paren-list-marker" });
-function isTyporaModeOn$1() {
+function isTyporaModeOn$2() {
     return document.body.classList.contains("typora-mode-active");
 }
 function buildDecorations$2(view$1) {
     const builder = new state.RangeSetBuilder();
-    if (!isTyporaModeOn$1()) {
+    if (!isTyporaModeOn$2()) {
         return view.Decoration.none;
     }
     const doc = view$1.state.doc;
@@ -1925,7 +1925,7 @@ const refreshHtmlStyleEffect = state.StateEffect.define();
 const FONT_RE = /<font\b([^>]*)>([\s\S]*?)<\/font>/gi;
 const SPAN_RE = /<span\b([^>]*)>([\s\S]*?)<\/span>/gi;
 const hideTagDeco = view.Decoration.mark({ class: "typora-html-tag" });
-function isTyporaModeOn() {
+function isTyporaModeOn$1() {
     return document.body.classList.contains("typora-mode-active");
 }
 function hideSyntaxOn() {
@@ -2014,7 +2014,7 @@ function fenceLang(text) {
 }
 function buildDecorations(view$1) {
     const builder = new state.RangeSetBuilder();
-    if (!isTyporaModeOn()) {
+    if (!isTyporaModeOn$1()) {
         return view.Decoration.none;
     }
     const hideTags = hideSyntaxOn();
@@ -2081,6 +2081,115 @@ function refreshHtmlStyleDecorations(app) {
             cm.dispatch({ effects: refreshHtmlStyleEffect.of(null) });
         }
     });
+}
+
+const TABLE_ROW_STRIPE_CLASS = "format-hotkeys-table-row-stripe";
+const IFRAME_STYLE_ID = "format-hotkeys-table-stripe-css";
+const IFRAME_TABLE_CSS = `
+table {
+    width: 100%;
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+th, td {
+    border: 1px solid var(--typora-table-border, #dfe2e5);
+    padding: 6px 13px;
+    font-weight: 400;
+    vertical-align: middle;
+}
+tr:not(.${TABLE_ROW_STRIPE_CLASS}) > :is(th, td) {
+    background-color: var(--typora-table-base, var(--background-primary, #fff)) !important;
+}
+tr.${TABLE_ROW_STRIPE_CLASS} > :is(th, td) {
+    background-color: var(--typora-table-stripe, #f8f8f8) !important;
+}
+`;
+function isTyporaModeOn() {
+    return document.body.classList.contains("typora-mode-active");
+}
+function readCssVar(name, fallback) {
+    const value = getComputedStyle(document.body).getPropertyValue(name).trim();
+    return value || fallback;
+}
+function stripeRows(table) {
+    table.querySelectorAll(`tr.${TABLE_ROW_STRIPE_CLASS}`).forEach((row) => {
+        row.classList.remove(TABLE_ROW_STRIPE_CLASS);
+    });
+    if (!isTyporaModeOn()) {
+        return;
+    }
+    const bodyRows = [];
+    if (table.tBodies.length > 0) {
+        for (const tbody of Array.from(table.tBodies)) {
+            bodyRows.push(...Array.from(tbody.rows));
+        }
+    }
+    else {
+        bodyRows.push(...Array.from(table.rows));
+    }
+    bodyRows.forEach((row, index) => {
+        if ((index + 1) % 2 === 0) {
+            row.classList.add(TABLE_ROW_STRIPE_CLASS);
+        }
+    });
+}
+function ensureIframeStyles(doc) {
+    if (doc.getElementById(IFRAME_STYLE_ID)) {
+        return;
+    }
+    const root = doc.documentElement;
+    root.style.setProperty("--typora-table-border", readCssVar("--typora-table-border", "#dfe2e5"));
+    root.style.setProperty("--typora-table-stripe", readCssVar("--typora-table-stripe", "#f8f8f8"));
+    root.style.setProperty("--typora-table-base", readCssVar("--background-primary", "#ffffff"));
+    const style = doc.createElement("style");
+    style.id = IFRAME_STYLE_ID;
+    style.textContent = IFRAME_TABLE_CSS;
+    doc.head.appendChild(style);
+}
+function stripeRoot(root) {
+    root.querySelectorAll("table").forEach((node) => {
+        if (node instanceof HTMLTableElement) {
+            stripeRows(node);
+        }
+    });
+}
+function stripeHtmlEmbedIframes(root = document) {
+    root.querySelectorAll(".cm-html-embed iframe").forEach((node) => {
+        if (!(node instanceof HTMLIFrameElement)) {
+            return;
+        }
+        try {
+            const doc = node.contentDocument;
+            if (!doc) {
+                return;
+            }
+            ensureIframeStyles(doc);
+            stripeRoot(doc);
+        }
+        catch (_a) {
+            // sandbox / cross-origin
+        }
+    });
+}
+function refreshTableStripes(_app, root = document) {
+    if (!isTyporaModeOn()) {
+        stripeRoot(root);
+        return;
+    }
+    stripeRoot(root);
+    stripeHtmlEmbedIframes(root);
+}
+let debounceTimer;
+function scheduleTableStripeRefresh(app) {
+    window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(() => {
+        refreshTableStripes();
+    }, 80);
+}
+function attachTableStripeObserver(app, root) {
+    const observer = new MutationObserver(() => scheduleTableStripeRefresh());
+    observer.observe(root, { childList: true, subtree: true });
+    return observer;
 }
 
 const RED_OPEN = '<font color="#ff0000">';
@@ -2177,13 +2286,17 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             this.toolbarManager = new EditorToolbarManager(this);
             this.toolbarManager.attach();
             this.applyTyporaMode();
+            this.setupTableStripeRefresh();
         });
     }
     onunload() {
+        var _a;
         const bodyEl = document.body;
         bodyEl.removeClass("typora-mode-active");
         bodyEl.removeClass("typora-hide-syntax");
         clearTyporaStyleVars(bodyEl);
+        (_a = this.tableStripeObserver) === null || _a === void 0 ? void 0 : _a.disconnect();
+        refreshTableStripes(this.app);
     }
     /**
      * 应用 Typora 显示模式：写入自定义 CSS 变量，并切换 body 标记类
@@ -2196,6 +2309,20 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
         refreshParenListDecorations(this.app);
         refreshAsmHighlight(this.app);
         refreshHtmlStyleDecorations(this.app);
+        scheduleTableStripeRefresh(this.app);
+    }
+    setupTableStripeRefresh() {
+        this.registerEvent(this.app.workspace.on("layout-change", () => scheduleTableStripeRefresh(this.app)));
+        this.registerEvent(this.app.workspace.on("active-leaf-change", () => scheduleTableStripeRefresh(this.app)));
+        this.app.workspace.onLayoutReady(() => {
+            var _a;
+            const workspaceEl = document.querySelector(".workspace");
+            if (workspaceEl instanceof HTMLElement) {
+                (_a = this.tableStripeObserver) === null || _a === void 0 ? void 0 : _a.disconnect();
+                this.tableStripeObserver = attachTableStripeObserver(this.app, workspaceEl);
+            }
+            scheduleTableStripeRefresh(this.app);
+        });
     }
     registerPrismAsmLanguages() {
         return __awaiter(this, void 0, void 0, function* () {
