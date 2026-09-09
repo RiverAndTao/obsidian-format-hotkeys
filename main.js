@@ -1214,7 +1214,7 @@ const TOOLBAR_BUTTON_LABELS = {
     "typora-mode": "Typora 模式",
     "typora-config": "Typora配置",
     bold: "加粗",
-    "flatten-to-bold": "格式转加粗",
+    "flatten-to-bold": "变化改加粗",
     "remove-red": "取消变红",
     callout: "Tips",
 };
@@ -1465,7 +1465,7 @@ class EditorToolbarManager {
                 this.addActionButton(view, "加粗", (editor) => toggleBold(editor));
                 break;
             case "flatten-to-bold":
-                this.addActionButton(view, "格式转加粗", (editor) => flattenSelectionToBold(editor));
+                this.addActionButton(view, "变化改加粗", (editor) => flattenSelectionToBold(editor));
                 break;
             case "remove-red":
                 this.addActionButton(view, "取消变红", (editor) => removeRedInSelection(editor));
@@ -2242,7 +2242,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             });
             this.addCommand({
                 id: "flatten-to-bold",
-                name: "选区格式转为加粗",
+                name: "变化改加粗",
                 editorCallback: (editor) => flattenSelectionToBold(editor),
             });
             this.addCommand({

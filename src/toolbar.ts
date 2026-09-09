@@ -78,7 +78,7 @@ export class EditorToolbarManager {
                 this.addActionButton(view, "加粗", (editor) => toggleBold(editor));
                 break;
             case "flatten-to-bold":
-                this.addActionButton(view, "格式转加粗", (editor) => flattenSelectionToBold(editor));
+                this.addActionButton(view, "变化改加粗", (editor) => flattenSelectionToBold(editor));
                 break;
             case "remove-red":
                 this.addActionButton(view, "取消变红", (editor) => removeRedInSelection(editor));

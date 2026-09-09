@@ -69,7 +69,7 @@ export default class FormatHotkeysPlugin extends Plugin {
 
         this.addCommand({
             id: "flatten-to-bold",
-            name: "选区格式转为加粗",
+            name: "变化改加粗",
             editorCallback: (editor: Editor) => flattenSelectionToBold(editor),
         });
 

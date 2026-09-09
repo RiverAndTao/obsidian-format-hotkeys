@@ -56,7 +56,7 @@ export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
     "typora-mode": "Typora 模式",
     "typora-config": "Typora配置",
     bold: "加粗",
-    "flatten-to-bold": "格式转加粗",
+    "flatten-to-bold": "变化改加粗",
     "remove-red": "取消变红",
     callout: "Tips",
 };
