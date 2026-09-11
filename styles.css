@@ -760,8 +760,9 @@ body.typora-mode-active {
     --table-border-width: 1px;
     --table-border-color: var(--typora-table-border);
     --table-header-border-color: var(--typora-table-border);
-    --table-row-alt-background: var(--typora-table-stripe);
-    --table-row-alt-background-hover: var(--typora-table-stripe);
+    /* 关掉 Obsidian 自带隔行，避免和 td 上色叠成双层底 */
+    --table-row-alt-background: transparent;
+    --table-row-alt-background-hover: transparent;
     --table-column-alt-background: transparent;
     --table-row-background-hover: transparent;
 }
@@ -769,7 +770,8 @@ body.typora-mode-active {
 body.typora-mode-active .cm-table-widget,
 body.typora-mode-active .cm-embed-block:has(table) {
     --table-column-alt-background: transparent !important;
-    --table-row-alt-background: var(--typora-table-stripe) !important;
+    --table-row-alt-background: transparent !important;
+    --table-row-alt-background-hover: transparent !important;
 }
 
 body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
@@ -840,9 +842,13 @@ body.typora-mode-active :is(
     .markdown-preview-view,
     .markdown-source-view.mod-cm6,
     .cm-table-widget,
-    .cm-html-embed
+    .cm-html-embed,
+    .cm-embed-block
 ) :is(th, td) .table-cell-wrapper {
-    background-color: inherit;
+    /* 只让 td/th 上色；wrapper 透明，避免「灰底里再套一块深色」 */
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
 }
 
 /*
@@ -850,7 +856,7 @@ body.typora-mode-active :is(
  * 1. 表头有浅底
  * 2. 第一行数据无底
  * 3. 第二行数据有浅底，之后交替
- * JS 会给目标行打 .format-hotkeys-table-row-stripe；CSS 再做 nth-child 兜底。
+ * 颜色只涂在 td/th 上，不再给 .table-cell-wrapper 上色。
  */
 body.typora-mode-active :is(
     .markdown-rendered,
@@ -899,42 +905,6 @@ body.typora-mode-active :is(
 ) table:not(:has(thead)) > tr:nth-child(odd) > :is(th, td),
 .format-hotkeys-typora-preview table thead > tr > :is(th, td),
 .format-hotkeys-typora-preview table tbody tr:nth-child(even) > :is(th, td) {
-    background-color: var(--typora-table-stripe) !important;
-}
-
-body.typora-mode-active :is(
-    .markdown-rendered,
-    .cm-table-widget,
-    .cm-html-embed,
-    .cm-embed-block
-) table :is(th, td) .table-cell-wrapper {
-    background-color: inherit !important;
-}
-
-body.typora-mode-active :is(
-    .markdown-rendered,
-    .cm-table-widget,
-    .cm-html-embed,
-    .cm-embed-block
-) table tr.format-hotkeys-table-row-stripe .table-cell-wrapper,
-body.typora-mode-active :is(
-    .markdown-rendered,
-    .cm-table-widget,
-    .cm-html-embed,
-    .cm-embed-block
-) table thead .table-cell-wrapper,
-body.typora-mode-active :is(
-    .markdown-rendered,
-    .cm-table-widget,
-    .cm-html-embed,
-    .cm-embed-block
-) table tbody tr:nth-child(even) .table-cell-wrapper,
-body.typora-mode-active :is(
-    .markdown-rendered,
-    .cm-table-widget,
-    .cm-html-embed,
-    .cm-embed-block
-) table:not(:has(thead)) > tr:nth-child(odd) .table-cell-wrapper {
     background-color: var(--typora-table-stripe) !important;
 }
 
