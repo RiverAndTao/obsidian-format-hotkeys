@@ -1239,14 +1239,44 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-footref {
     text-underline-offset: 0.12em;
 }
 
-img {
+/*
+ * 图片居中（对齐 Typora）：
+ * Obsidian 实时预览里图片常包在 .image-embed 里，只给 img 设 margin:auto 不够，
+ * 需要把嵌入容器也变成块级并水平居中。
+ */
+body.typora-mode-active :is(
+    .markdown-source-view.mod-cm6,
+    .markdown-preview-view,
+    .markdown-rendered
+) :is(img, .image-embed, .internal-embed.media-embed.image-embed) {
     display: block !important;
     margin-left: auto !important;
     margin-right: auto !important;
 }
 
-/*
- * 原 image.css 曾对 .cm-content > * 设 margin:auto，
- * 会把每一行（含列表）水平居中，破坏 Typora 缩进层级，已去掉。
- * 图片居中仍由上方 img 规则负责。
- */
+body.typora-mode-active :is(
+    .markdown-source-view.mod-cm6,
+    .markdown-preview-view,
+    .markdown-rendered
+) :is(.image-embed, .internal-embed.media-embed.image-embed) {
+    max-width: 100%;
+    text-align: center;
+}
+
+body.typora-mode-active :is(
+    .markdown-source-view.mod-cm6,
+    .markdown-preview-view,
+    .markdown-rendered
+) :is(.image-embed, .internal-embed.media-embed.image-embed) img {
+    display: inline-block !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    max-width: 100%;
+}
+
+/* 整行只有图片时，行本身也居中，避免 inline widget 仍靠左 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line:has(> .image-embed),
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line:has(> .internal-embed.image-embed),
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line:has(> img) {
+    text-align: center;
+}
