@@ -111,10 +111,15 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .typora-html-colored {
 
 body.typora-mode-active .markdown-rendered font,
 body.typora-mode-active .markdown-preview-view font,
-body.typora-mode-active .cm-html-embed:not(:has(table)) {
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-html-embed:not(:has(table)),
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-embed-block:not(:has(table)):not(.cm-table-widget):not(.image-embed) {
+    /* 行内 HTML（如 <font>）必须留在正文流里，否则会几个字就断行 */
     display: inline !important;
     width: auto !important;
     max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    float: none !important;
 }
 
 body.typora-mode-active .markdown-rendered font[color="#ff0000"],
@@ -803,12 +808,11 @@ body.typora-mode-active :is(
 ) :is(
     .cm-table-widget,
     .cm-embed-block.cm-table-widget,
-    .cm-embed-block:has(table),
+    .cm-embed-block:has(> table),
     .cm-table-widget .table-wrapper,
-    .cm-html-embed:has(table),
+    .cm-html-embed:has(> table),
     .el-table,
-    .table-wrapper,
-    div:has(> table)
+    .table-wrapper
 ) {
     display: block;
     width: 100% !important;
@@ -927,6 +931,10 @@ body.typora-mode-active :is(
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line {
     padding-top: var(--typora-line-padding);
     padding-bottom: var(--typora-line-padding);
+    /* 防止被其它规则压成极窄行宽，出现「几个字就换行」 */
+    max-width: none !important;
+    width: auto !important;
+    box-sizing: border-box;
 }
 
 /* =====================================================
@@ -1252,43 +1260,25 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-footref {
 }
 
 /*
- * 图片居中（对齐 Typora）：
- * Obsidian 实时预览里图片常包在 .image-embed 里，只给 img 设 margin:auto 不够，
- * 需要把嵌入容器也变成块级并水平居中。
+ * 图片居中（对齐 Typora，但避免破坏 CM6 行宽）：
+ * - 阅读/预览：img 块级居中
+ * - 源码/实时预览：只对图片行做 text-align，不把任意 img 强制 block
  */
-body.typora-mode-active :is(
-    .markdown-source-view.mod-cm6,
-    .markdown-preview-view,
-    .markdown-rendered
-) :is(img, .image-embed, .internal-embed.media-embed.image-embed) {
+body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) img {
     display: block !important;
     margin-left: auto !important;
     margin-right: auto !important;
-}
-
-body.typora-mode-active :is(
-    .markdown-source-view.mod-cm6,
-    .markdown-preview-view,
-    .markdown-rendered
-) :is(.image-embed, .internal-embed.media-embed.image-embed) {
-    max-width: 100%;
-    text-align: center;
-}
-
-body.typora-mode-active :is(
-    .markdown-source-view.mod-cm6,
-    .markdown-preview-view,
-    .markdown-rendered
-) :is(.image-embed, .internal-embed.media-embed.image-embed) img {
-    display: inline-block !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
     max-width: 100%;
 }
 
-/* 整行只有图片时，行本身也居中，避免 inline widget 仍靠左 */
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line:has(> .image-embed),
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line:has(> .internal-embed.image-embed),
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line:has(> img) {
+body.typora-mode-active .markdown-source-view.mod-cm6
+.cm-line:has(> .image-embed),
+body.typora-mode-active .markdown-source-view.mod-cm6
+.cm-line:has(> .internal-embed.image-embed) {
     text-align: center;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6
+:is(.image-embed, .internal-embed.media-embed.image-embed) {
+    max-width: 100%;
 }
