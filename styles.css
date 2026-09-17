@@ -575,16 +575,28 @@ body.typora-mode-active .markdown-source-view.mod-cm6
    第六部分：链接
    ===================================================== */
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-link.cm-link,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-link.cm-link:not(.cm-hmd-barelink),
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-internal-link,
 body.typora-mode-active .markdown-source-view.mod-cm6 .internal-link {
     color: var(--typora-link-color);
     text-decoration: none;
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-link.cm-link:hover {
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-link.cm-link:not(.cm-hmd-barelink):hover {
     text-decoration: underline;
     text-underline-offset: 2px;
+}
+
+/*
+ * Obsidian 会把单独的 [某某内容] 标成潜在引用链接（.cm-hmd-barelink）并染成紫色。
+ * Typora 模式下按普通正文显示；真正的 [文字](url) / [[双链]] 仍用链接色。
+ */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-link.cm-hmd-barelink,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-link.cm-hmd-barelink:hover,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-link.cm-hmd-barelink,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-hmd-barelink {
+    color: var(--text-normal) !important;
+    text-decoration: none !important;
 }
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .external-link {
