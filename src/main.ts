@@ -26,6 +26,11 @@ import {
     refreshTableStripes,
     scheduleTableStripeRefresh,
 } from "./typora-table-stripe";
+import {
+    attachOutlineMarkdownObserver,
+    restoreOutlineMarkdown,
+    scheduleOutlineMarkdownRefresh,
+} from "./outline-markdown";
 
 const RED_OPEN = '<font color="#ff0000">';
 const RED_CLOSE = "</font>";
@@ -34,6 +39,7 @@ export default class FormatHotkeysPlugin extends Plugin {
     settings: FormatHotkeysSettings = DEFAULT_SETTINGS;
     private toolbarManager!: EditorToolbarManager;
     private tableStripeObserver?: MutationObserver;
+    private outlineMarkdownObserver?: MutationObserver;
 
     async onload() {
         await this.loadSettings();
@@ -141,6 +147,7 @@ export default class FormatHotkeysPlugin extends Plugin {
 
         this.applyTyporaMode();
         this.setupTableStripeRefresh();
+        this.setupOutlineMarkdown();
     }
 
     onunload(): void {
@@ -150,6 +157,8 @@ export default class FormatHotkeysPlugin extends Plugin {
         clearTyporaStyleVars(bodyEl);
         this.tableStripeObserver?.disconnect();
         refreshTableStripes(this.app);
+        this.outlineMarkdownObserver?.disconnect();
+        restoreOutlineMarkdown();
     }
 
     /**
@@ -180,6 +189,19 @@ export default class FormatHotkeysPlugin extends Plugin {
                 this.tableStripeObserver = attachTableStripeObserver(this.app, workspaceEl);
             }
             scheduleTableStripeRefresh(this.app);
+        });
+    }
+
+    private setupOutlineMarkdown(): void {
+        this.registerEvent(this.app.workspace.on("layout-change", () => scheduleOutlineMarkdownRefresh()));
+        this.registerEvent(this.app.workspace.on("active-leaf-change", () => scheduleOutlineMarkdownRefresh()));
+        this.app.workspace.onLayoutReady(() => {
+            const workspaceEl = document.querySelector(".workspace");
+            if (workspaceEl instanceof HTMLElement) {
+                this.outlineMarkdownObserver?.disconnect();
+                this.outlineMarkdownObserver = attachOutlineMarkdownObserver(this.app, workspaceEl);
+            }
+            scheduleOutlineMarkdownRefresh();
         });
     }
 

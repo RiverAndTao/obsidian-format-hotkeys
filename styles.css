@@ -1251,6 +1251,23 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-footref {
     justify-content: center;
 }
 
+/* 大纲标题里的 Markdown（加粗、代码、删除线等）按正文样式显示，不走链接紫 */
+.workspace-leaf-content[data-type="outline"] .tree-item-inner :is(strong, em, s, mark, code, .fh-outline-math) {
+    color: inherit;
+    font-size: inherit;
+}
+
+.workspace-leaf-content[data-type="outline"] .tree-item-inner code,
+.workspace-leaf-content[data-type="outline"] .tree-item-inner .fh-outline-math {
+    font-family: var(--font-monospace);
+    font-size: 0.92em;
+}
+
+.workspace-leaf-content[data-type="outline"] .tree-item-inner mark {
+    background-color: var(--text-highlight-bg, rgba(255, 208, 0, 0.25));
+    color: inherit;
+}
+
 /* 波浪下划线：<span class="wavy-underline">文字</span> */
 .wavy-underline {
     text-decoration-line: underline;

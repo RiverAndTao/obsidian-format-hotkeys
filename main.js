@@ -2192,16 +2192,97 @@ function refreshTableStripes(_app, root = document) {
         stripeHtmlEmbedIframes(root);
     }
 }
-let debounceTimer;
+let debounceTimer$1;
 function scheduleTableStripeRefresh(app) {
-    window.clearTimeout(debounceTimer);
-    debounceTimer = window.setTimeout(() => {
+    window.clearTimeout(debounceTimer$1);
+    debounceTimer$1 = window.setTimeout(() => {
         refreshTableStripes();
     }, 80);
 }
 function attachTableStripeObserver(app, root) {
     const observer = new MutationObserver(() => scheduleTableStripeRefresh());
     observer.observe(root, { childList: true, subtree: true });
+    return observer;
+}
+
+const SRC_ATTR = "data-fh-outline-src";
+const MD_RE = /[*_`~$=]|\[\[|\]\(|!\[]|~~|==/;
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+/** 大纲标题里的常见行内 Markdown，渲染成 HTML。双链/链接只显示可见文字。 */
+function renderOutlineMarkdown(src) {
+    let text = escapeHtml(src);
+    text = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+    text = text.replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_m, note, alias) => alias || note);
+    text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+    text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+    text = text.replace(/==([^=\n]+)==/g, "<mark>$1</mark>");
+    text = text.replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
+    text = text.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+    text = text.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
+    text = text.replace(/(^|[\s([（])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+    text = text.replace(/(^|[\s([（])_([^_\n]+)_/g, "$1<em>$2</em>");
+    text = text.replace(/\$([^$\n]+)\$/g, '<span class="fh-outline-math">$1</span>');
+    return text;
+}
+function outlineInners(root = document) {
+    return Array.from(root.querySelectorAll('.workspace-leaf-content[data-type="outline"] .tree-item-inner')).filter((node) => node instanceof HTMLElement);
+}
+function isPlainText(el) {
+    var _a;
+    return el.childNodes.length === 1 && ((_a = el.firstChild) === null || _a === void 0 ? void 0 : _a.nodeType) === Node.TEXT_NODE;
+}
+function paint(el) {
+    var _a;
+    if (!isPlainText(el)) {
+        return;
+    }
+    const src = (_a = el.textContent) !== null && _a !== void 0 ? _a : "";
+    if (!MD_RE.test(src)) {
+        el.removeAttribute(SRC_ATTR);
+        return;
+    }
+    if (el.getAttribute(SRC_ATTR) === src && !isPlainText(el)) {
+        return;
+    }
+    el.setAttribute(SRC_ATTR, src);
+    el.innerHTML = renderOutlineMarkdown(src);
+}
+function refreshOutlineMarkdown(root = document) {
+    for (const el of outlineInners(root)) {
+        paint(el);
+    }
+}
+function restoreOutlineMarkdown(root = document) {
+    for (const el of outlineInners(root)) {
+        const src = el.getAttribute(SRC_ATTR);
+        if (src !== null) {
+            el.textContent = src;
+            el.removeAttribute(SRC_ATTR);
+        }
+    }
+}
+let debounceTimer;
+function scheduleOutlineMarkdownRefresh() {
+    window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(() => refreshOutlineMarkdown(), 40);
+}
+function attachOutlineMarkdownObserver(_app, root) {
+    const observer = new MutationObserver((records) => {
+        for (const record of records) {
+            const target = record.target instanceof HTMLElement ? record.target : record.target.parentElement;
+            if (!(target === null || target === void 0 ? void 0 : target.closest('.workspace-leaf-content[data-type="outline"]'))) {
+                continue;
+            }
+            scheduleOutlineMarkdownRefresh();
+            return;
+        }
+    });
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
     return observer;
 }
 
@@ -2300,16 +2381,19 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             this.toolbarManager.attach();
             this.applyTyporaMode();
             this.setupTableStripeRefresh();
+            this.setupOutlineMarkdown();
         });
     }
     onunload() {
-        var _a;
+        var _a, _b;
         const bodyEl = document.body;
         bodyEl.removeClass("typora-mode-active");
         bodyEl.removeClass("typora-hide-syntax");
         clearTyporaStyleVars(bodyEl);
         (_a = this.tableStripeObserver) === null || _a === void 0 ? void 0 : _a.disconnect();
         refreshTableStripes(this.app);
+        (_b = this.outlineMarkdownObserver) === null || _b === void 0 ? void 0 : _b.disconnect();
+        restoreOutlineMarkdown();
     }
     /**
      * 应用 Typora 显示模式：写入自定义 CSS 变量，并切换 body 标记类
@@ -2335,6 +2419,19 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 this.tableStripeObserver = attachTableStripeObserver(this.app, workspaceEl);
             }
             scheduleTableStripeRefresh(this.app);
+        });
+    }
+    setupOutlineMarkdown() {
+        this.registerEvent(this.app.workspace.on("layout-change", () => scheduleOutlineMarkdownRefresh()));
+        this.registerEvent(this.app.workspace.on("active-leaf-change", () => scheduleOutlineMarkdownRefresh()));
+        this.app.workspace.onLayoutReady(() => {
+            var _a;
+            const workspaceEl = document.querySelector(".workspace");
+            if (workspaceEl instanceof HTMLElement) {
+                (_a = this.outlineMarkdownObserver) === null || _a === void 0 ? void 0 : _a.disconnect();
+                this.outlineMarkdownObserver = attachOutlineMarkdownObserver(this.app, workspaceEl);
+            }
+            scheduleOutlineMarkdownRefresh();
         });
     }
     registerPrismAsmLanguages() {
