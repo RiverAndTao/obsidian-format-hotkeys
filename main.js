@@ -528,6 +528,67 @@ function wrapCallout(editor, type = "tip") {
     editor.replaceRange(`> [!${type}]\n${body}`, { line: from.line, ch: 0 }, { line: from.line, ch: line.length });
     editor.setCursor({ line: from.line + 1, ch: body.length });
 }
+/** 统计一行的引用深度（开头连续 `>` 的数量） */
+function calloutQuoteDepth(line) {
+    const m = line.match(/^\s*>(?:\s*>)*/);
+    return m ? m[0].split(">").length - 1 : 0;
+}
+/** 取消选中的 Callout：移除 `> [!类型][+-]` 头，并去掉正文每行前的一个 `>`（嵌套引用保留一层） */
+function removeCallout(editor) {
+    var _a;
+    const from = editor.getCursor("from");
+    const posDepth = calloutQuoteDepth(editor.getLine(from.line));
+    // 向上查找包含光标/选区起点的 Callout 头行（取所在引用块中最外层、深度最小的头）
+    let headerLine = -1;
+    let minDepth = Infinity;
+    for (let l = from.line; l >= 0; l--) {
+        const t = editor.getLine(l);
+        if (CALLOUT_HEADER_RE.test(t)) {
+            const d = calloutQuoteDepth(t);
+            if (d <= posDepth && d < minDepth) {
+                minDepth = d;
+                headerLine = l;
+            }
+        }
+        // 越过非引用内容行则停止向上搜索
+        if (t.trim() !== "" && !t.trimStart().startsWith(">")) {
+            break;
+        }
+    }
+    if (headerLine === -1)
+        return;
+    // 确定 Callout 结束行：头行之后连续的引用行（含仅 ">" 的空白行）
+    const lineCount = editor.lineCount();
+    let endLine = headerLine;
+    for (let l = headerLine + 1; l < lineCount; l++) {
+        if (editor.getLine(l).trimStart().startsWith(">")) {
+            endLine = l;
+        }
+        else {
+            break;
+        }
+    }
+    // 头行：去掉 "> [!类型][+-] " 前缀，保留标题文本（若有）作为普通行
+    const headerText = editor.getLine(headerLine);
+    const titleMatch = headerText.match(/^>\s*\[![\w-]+\][+-]?(?:\s+(.*))?\s*$/);
+    const title = titleMatch ? ((_a = titleMatch[1]) !== null && _a !== void 0 ? _a : "").trim() : "";
+    const out = [];
+    if (title.length > 0) {
+        out.push(title);
+    }
+    // 正文：每行去掉一个 "> " 前缀（嵌套引用保留一层）
+    for (let l = headerLine + 1; l <= endLine; l++) {
+        const t = editor.getLine(l);
+        const m = t.match(/^(\s*)>\s?(.*)$/);
+        out.push(m ? m[1] + m[2] : t);
+    }
+    const newText = out.join("\n");
+    const startPos = { line: headerLine, ch: 0 };
+    const endPos = { line: endLine, ch: editor.getLine(endLine).length };
+    replaceRangeOnce(editor, newText, startPos, endPos);
+    const endSel = { line: headerLine + out.length - 1, ch: out[out.length - 1].length };
+    editor.setSelection(startPos, endSel);
+}
 /** 切换选区 Markdown 加粗 `** **` */
 function toggleBold(editor) {
     const selected = editor.getSelection();
@@ -1194,6 +1255,7 @@ const DEFAULT_SETTINGS = {
         "flatten-to-bold",
         "remove-red",
         "callout",
+        "remove-callout",
         "remove-blank-lines",
         "dunhao",
         "code-language",
@@ -1203,6 +1265,7 @@ const DEFAULT_SETTINGS = {
     ],
     typoraMode: false,
     typora: cloneTyporaStyle(DEFAULT_TYPORA_STYLE),
+    restoreEditorPosition: true,
 };
 const TOOLBAR_BUTTON_LABELS = {
     "remove-blank-lines": "去除空格行",
@@ -1217,6 +1280,7 @@ const TOOLBAR_BUTTON_LABELS = {
     "flatten-to-bold": "变化改加粗",
     "remove-red": "取消变红",
     callout: "Tips",
+    "remove-callout": "取消提示",
 };
 function formatLanguageLabel(language) {
     return language.trim() === "" ? "无" : language;
@@ -1232,6 +1296,13 @@ class FormatHotkeysSettingTab extends ObsidianApi.PluginSettingTab {
         containerEl.createEl("h2", { text: "Format Hotkeys 设置" });
         containerEl.createEl("h3", { text: "Typora 模式" });
         new TyporaSettingsPanel(this.plugin, containerEl, () => this.display()).render();
+        new ObsidianApi.Setting(containerEl)
+            .setName("恢复上次编辑位置")
+            .setDesc("切换文件或关闭重开后，恢复到上次的光标、滚动与选区位置（按文件记忆）")
+            .addToggle((toggle) => toggle.setValue(this.plugin.settings.restoreEditorPosition).onChange((value) => __awaiter(this, void 0, void 0, function* () {
+            this.plugin.settings.restoreEditorPosition = value;
+            yield this.plugin.saveSettings();
+        })));
         new ObsidianApi.Setting(containerEl)
             .setName("默认代码语言")
             .setDesc("Ctrl+Alt+D 创建代码块时使用的语言标识")
@@ -1491,6 +1562,9 @@ class EditorToolbarManager {
             case "callout":
                 this.addCalloutButton(view);
                 break;
+            case "remove-callout":
+                this.addActionButton(view, "取消提示", (editor) => removeCallout(editor));
+                break;
         }
     }
     addTyporaModeButton(_view) {
@@ -1641,6 +1715,62 @@ class EditorToolbarManager {
         this.toolbarEl = null;
         this.attachedView = null;
     }
+}
+
+/** 读取当前源码视图的光标与滚动位置（参考 remember-cursor-position 插件的成熟读取方式） */
+function readViewState(view) {
+    var _a;
+    const state = {};
+    // 滚动：从编辑器模式读取，Obsidian 官方状态保存也用它
+    const mode = view.currentMode;
+    const scroll = (_a = mode === null || mode === void 0 ? void 0 : mode.getScroll) === null || _a === void 0 ? void 0 : _a.call(mode);
+    if (scroll !== undefined && !isNaN(scroll)) {
+        state.scroll = Number(scroll.toFixed(4));
+    }
+    const editor = view.editor;
+    if (editor) {
+        const from = editor.getCursor("anchor");
+        const to = editor.getCursor("head");
+        if (from && to) {
+            state.cursor = {
+                from: { line: from.line, ch: from.ch },
+                to: { line: to.line, ch: to.ch },
+            };
+        }
+    }
+    return state;
+}
+/** 恢复视图状态：选区/光标 + 滚动 + 将光标行滚入视野 */
+function applyViewState(view, state) {
+    const editor = view.editor;
+    if (state.cursor && editor) {
+        editor.setSelection(state.cursor.from, state.cursor.to);
+    }
+    if (state.scroll !== undefined) {
+        // 用 Obsidian 官方的 ephemeral state 机制设置滚动，比 editor.setScroll 可靠
+        view.setEphemeralState({ scroll: state.scroll });
+    }
+    if (state.cursor && editor) {
+        editor.scrollIntoView({ from: state.cursor.from, to: state.cursor.to }, true);
+    }
+}
+/** 两个状态是否相同（用于轮询判断是否需要更新） */
+function statesEqual(a, b) {
+    if (Boolean(a.cursor) !== Boolean(b.cursor))
+        return false;
+    if (a.cursor) {
+        const ca = a.cursor;
+        const cb = b.cursor;
+        if (ca.from.line !== cb.from.line || ca.from.ch !== cb.from.ch)
+            return false;
+        if (ca.to.line !== cb.to.line || ca.to.ch !== cb.to.ch)
+            return false;
+    }
+    if (Boolean(a.scroll) !== Boolean(b.scroll))
+        return false;
+    if (a.scroll !== undefined && a.scroll !== b.scroll)
+        return false;
+    return true;
 }
 
 /** 行首 `(1)` / `（1）` 括号编号，课本常用写法 */
@@ -2288,10 +2418,30 @@ function attachOutlineMarkdownObserver(_app, root) {
 
 const RED_OPEN = '<font color="#ff0000">';
 const RED_CLOSE = "</font>";
+/**
+ * 编辑进度保存/恢复（参考 MIT 协议插件 dy-sh/obsidian-remember-cursor-position 的成熟实现）：
+ * - 保存：每 100ms 轮询当前文件的光标/滚动，变化即写入内存 db（任何时刻都最新）；
+ * - 落盘：每 5s 周期写独立 json 文件，Obsidian 退出（quit 事件）与插件卸载时再强制写一次；
+ * - 恢复：监听 file-open 事件，延迟等编辑器就绪后套用状态；1.5s 防重 guard 避免反复跳转；
+ * - 从链接跳转（存在 .is-flashing 元素）时不覆盖目标位置。
+ */
+const CHECK_INTERVAL_MS = 100;
+const DB_FLUSH_INTERVAL_MS = 5000;
+const RESTORE_DELAY_MS = 100;
+const RESTORE_GUARD_WINDOW_MS = 1500;
+const LAYOUT_READY_RESTORE_DELAY = 600;
 class FormatHotkeysPlugin extends ObsidianApi.Plugin {
     constructor() {
         super(...arguments);
         this.settings = DEFAULT_SETTINGS;
+        this.db = {};
+        this.lastSavedDbJson = "";
+        this.dbPath = "";
+        this.lastLoadedFileName = "";
+        this.lastState = {};
+        this.lastRestoredKey = "";
+        this.lastRestoredAt = 0;
+        this.loadingFile = false;
     }
     onload() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -2368,6 +2518,11 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 editorCallback: (editor) => wrapCallout(editor, "tip"),
             });
             this.addCommand({
+                id: "remove-callout",
+                name: "取消选区 Callout",
+                editorCallback: (editor) => removeCallout(editor),
+            });
+            this.addCommand({
                 id: "open-typora-config",
                 name: "打开 Typora 配置",
                 callback: () => new TyporaConfigModal(this.app, this).open(),
@@ -2379,6 +2534,29 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             void this.registerPrismAsmLanguages();
             this.toolbarManager = new EditorToolbarManager(this);
             this.toolbarManager.attach();
+            // ---- 编辑进度保存/恢复（按文件记忆光标/滚动/选区，切换与关闭重开后恢复） ----
+            this.dbPath = `${this.manifest.dir}/cursor-positions.json`;
+            yield this.loadDb();
+            this.registerEvent(this.app.workspace.on("file-open", (file) => this.restoreState(file)));
+            this.registerEvent(this.app.workspace.on("quit", () => this.writeDb()));
+            // 文件重命名/删除时同步迁移或清理位置记录
+            this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+                if (file.path !== oldPath) {
+                    this.db[file.path] = this.db[oldPath];
+                    delete this.db[oldPath];
+                }
+            }));
+            this.registerEvent(this.app.vault.on("delete", (file) => {
+                delete this.db[file.path];
+            }));
+            // 保存：持续轮询当前文件位置；落盘：周期写 + 退出/卸载写
+            this.registerInterval(window.setInterval(() => this.checkStateChanged(), CHECK_INTERVAL_MS));
+            this.registerInterval(window.setInterval(() => this.writeDb(), DB_FLUSH_INTERVAL_MS));
+            // 恢复：布局就绪后延迟强制恢复一次（覆盖 workspace 加载场景）
+            this.app.workspace.onLayoutReady(() => {
+                window.setTimeout(() => this.restoreState(), LAYOUT_READY_RESTORE_DELAY);
+            });
+            this.restoreState();
             this.applyTyporaMode();
             this.setupTableStripeRefresh();
             this.setupOutlineMarkdown();
@@ -2386,6 +2564,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
     }
     onunload() {
         var _a, _b;
+        this.writeDb();
         const bodyEl = document.body;
         bodyEl.removeClass("typora-mode-active");
         bodyEl.removeClass("typora-hide-syntax");
@@ -2407,6 +2586,136 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
         refreshAsmHighlight(this.app);
         refreshHtmlStyleDecorations(this.app);
         scheduleTableStripeRefresh(this.app);
+    }
+    /** 轮询：当前文件位置发生变化时写入内存 db */
+    checkStateChanged() {
+        var _a;
+        if (!this.settings.restoreEditorPosition)
+            return;
+        // 悬停预览窗口（Page preview / Hover Editor）是瞬态视图，绝不记录位置
+        if (this.isHoverPopoverActive())
+            return;
+        const fileName = (_a = this.app.workspace.getActiveFile()) === null || _a === void 0 ? void 0 : _a.path;
+        // 等待文件加载完成，且只记录当前正在浏览的文件
+        if (!fileName || !this.lastLoadedFileName || fileName !== this.lastLoadedFileName || this.loadingFile) {
+            return;
+        }
+        const view = this.app.workspace.getActiveViewOfType(ObsidianApi.MarkdownView);
+        if (!view)
+            return;
+        const st = readViewState(view);
+        const hadPrior = Object.keys(this.lastState).length > 0;
+        if (!hadPrior) {
+            this.lastState = st;
+            return;
+        }
+        if (!statesEqual(st, this.lastState)) {
+            this.db[fileName] = Object.assign(Object.assign({}, st), { lastModified: Date.now() });
+            this.lastState = st;
+        }
+    }
+    /** 文件打开/激活时恢复其保存的进度 */
+    restoreState(file) {
+        var _a, _b, _c, _d, _e;
+        return __awaiter(this, void 0, void 0, function* () {
+            const fileName = (_a = this.app.workspace.getActiveFile()) === null || _a === void 0 ? void 0 : _a.path;
+            // 悬停预览窗口不恢复位置；若预览了某个文件，顺带清掉它的记录避免污染
+            if (this.isHoverPopoverActive()) {
+                if (fileName)
+                    delete this.db[fileName];
+                return;
+            }
+            if (fileName && this.loadingFile && this.lastLoadedFileName === fileName) {
+                return;
+            }
+            // 1.5s 防重 guard：同一个 leaf+file 刚恢复过就不再重复跳
+            const leaf = this.app.workspace.getMostRecentLeaf();
+            const leafId = (_b = leaf.id) !== null && _b !== void 0 ? _b : "";
+            const leafFile = (_d = (_c = leaf === null || leaf === void 0 ? void 0 : leaf.getViewState().state) === null || _c === void 0 ? void 0 : _c.file) !== null && _d !== void 0 ? _d : "";
+            const guardKey = `${leafId}:${leafFile}`;
+            if (fileName && this.lastRestoredKey === guardKey && Date.now() - this.lastRestoredAt < RESTORE_GUARD_WINDOW_MS) {
+                return;
+            }
+            this.loadingFile = true;
+            if (this.lastLoadedFileName !== fileName) {
+                this.lastState = {};
+                this.lastLoadedFileName = fileName !== null && fileName !== void 0 ? fileName : "";
+                let st = {};
+                if (fileName && this.settings.restoreEditorPosition) {
+                    st = (_e = this.db[fileName]) !== null && _e !== void 0 ? _e : {};
+                    if (Object.keys(st).length > 0) {
+                        yield this.delay(RESTORE_DELAY_MS);
+                        // 从链接/搜索跳转时 Obsidian 会高亮目标，此时不覆盖
+                        const flashing = this.app.workspace.containerEl.querySelector(".is-flashing");
+                        if (!flashing) {
+                            yield this.delay(10);
+                            const view = this.app.workspace.getActiveViewOfType(ObsidianApi.MarkdownView);
+                            if (view) {
+                                applyViewState(view, st);
+                            }
+                        }
+                    }
+                }
+                this.lastRestoredKey = guardKey;
+                this.lastRestoredAt = Date.now();
+                this.lastState = st;
+            }
+            this.loadingFile = false;
+        });
+    }
+    /** 从独立 json 文件读取历史进度 */
+    loadDb() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const adapter = this.app.vault.adapter;
+                if (yield adapter.exists(this.dbPath)) {
+                    const data = yield adapter.read(this.dbPath);
+                    this.db = JSON.parse(data);
+                }
+            }
+            catch (e) {
+                console.error("Format Hotkeys: 读取光标位置数据库失败", e);
+                this.db = {};
+            }
+            // 清理已不存在文件的孤儿记录，避免数据库无限膨胀
+            for (const key of Object.keys(this.db)) {
+                if (!this.app.vault.getAbstractFileByPath(key)) {
+                    delete this.db[key];
+                }
+            }
+            this.lastSavedDbJson = JSON.stringify(this.db);
+        });
+    }
+    /** 当前激活视图是否为悬停预览窗口（Page preview / Hover Editor 等瞬态视图） */
+    isHoverPopoverActive() {
+        var _a;
+        const container = (_a = this.app.workspace.getActiveViewOfType(ObsidianApi.MarkdownView)) === null || _a === void 0 ? void 0 : _a.containerEl;
+        if (!container)
+            return false;
+        return container.closest(".hover-popover") !== null || container.closest(".hover-editor") !== null;
+    }
+    /** 把内存 db 写入独立 json 文件（仅内容变化时写） */
+    writeDb() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const json = JSON.stringify(this.db);
+                if (json === this.lastSavedDbJson)
+                    return;
+                const adapter = this.app.vault.adapter;
+                const parent = this.dbPath.substring(0, this.dbPath.lastIndexOf("/"));
+                if (!(yield adapter.exists(parent))) {
+                    yield adapter.mkdir(parent);
+                }
+                yield adapter.write(this.dbPath, json);
+                this.lastSavedDbJson = json;
+            }
+            catch (e) {
+                console.error("Format Hotkeys: 写入光标位置数据库失败", e);
+            }
+        });
+    }
+    delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
     }
     setupTableStripeRefresh() {
         this.registerEvent(this.app.workspace.on("layout-change", () => scheduleTableStripeRefresh(this.app)));
@@ -2468,6 +2777,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 "flatten-to-bold",
                 "remove-red",
                 "callout",
+                "remove-callout",
                 "remove-blank-lines",
                 "dunhao",
                 "code-language",

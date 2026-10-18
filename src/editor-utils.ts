@@ -440,6 +440,73 @@ export function wrapCallout(editor: Editor, type: CalloutType = "tip"): void {
     editor.setCursor({ line: from.line + 1, ch: body.length });
 }
 
+/** 统计一行的引用深度（开头连续 `>` 的数量） */
+function calloutQuoteDepth(line: string): number {
+    const m = line.match(/^\s*>(?:\s*>)*/);
+    return m ? m[0].split(">").length - 1 : 0;
+}
+
+/** 取消选中的 Callout：移除 `> [!类型][+-]` 头，并去掉正文每行前的一个 `>`（嵌套引用保留一层） */
+export function removeCallout(editor: Editor): void {
+    const from = editor.getCursor("from");
+    const posDepth = calloutQuoteDepth(editor.getLine(from.line));
+
+    // 向上查找包含光标/选区起点的 Callout 头行（取所在引用块中最外层、深度最小的头）
+    let headerLine = -1;
+    let minDepth = Infinity;
+    for (let l = from.line; l >= 0; l--) {
+        const t = editor.getLine(l);
+        if (CALLOUT_HEADER_RE.test(t)) {
+            const d = calloutQuoteDepth(t);
+            if (d <= posDepth && d < minDepth) {
+                minDepth = d;
+                headerLine = l;
+            }
+        }
+        // 越过非引用内容行则停止向上搜索
+        if (t.trim() !== "" && !t.trimStart().startsWith(">")) {
+            break;
+        }
+    }
+    if (headerLine === -1) return;
+
+    // 确定 Callout 结束行：头行之后连续的引用行（含仅 ">" 的空白行）
+    const lineCount = editor.lineCount();
+    let endLine = headerLine;
+    for (let l = headerLine + 1; l < lineCount; l++) {
+        if (editor.getLine(l).trimStart().startsWith(">")) {
+            endLine = l;
+        } else {
+            break;
+        }
+    }
+
+    // 头行：去掉 "> [!类型][+-] " 前缀，保留标题文本（若有）作为普通行
+    const headerText = editor.getLine(headerLine);
+    const titleMatch = headerText.match(/^>\s*\[![\w-]+\][+-]?(?:\s+(.*))?\s*$/);
+    const title = titleMatch ? (titleMatch[1] ?? "").trim() : "";
+
+    const out: string[] = [];
+    if (title.length > 0) {
+        out.push(title);
+    }
+
+    // 正文：每行去掉一个 "> " 前缀（嵌套引用保留一层）
+    for (let l = headerLine + 1; l <= endLine; l++) {
+        const t = editor.getLine(l);
+        const m = t.match(/^(\s*)>\s?(.*)$/);
+        out.push(m ? m[1] + m[2] : t);
+    }
+
+    const newText = out.join("\n");
+    const startPos = { line: headerLine, ch: 0 };
+    const endPos = { line: endLine, ch: editor.getLine(endLine).length };
+    replaceRangeOnce(editor, newText, startPos, endPos);
+
+    const endSel = { line: headerLine + out.length - 1, ch: out[out.length - 1].length };
+    editor.setSelection(startPos, endSel);
+}
+
 /** 切换选区 Markdown 加粗 `** **` */
 export function toggleBold(editor: Editor): void {
     const selected = editor.getSelection();

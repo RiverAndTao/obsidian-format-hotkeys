@@ -1,6 +1,6 @@
 import { Editor, MarkdownView, Menu } from "obsidian";
 import type FormatHotkeysPlugin from "./main";
-import { insertTextAtCursor, removeBlankLinesInSelection, convertBlockMathToInline, convertBlockMathToInlineAndJoin, normalizePunctuation, wrapCallout, CALLOUT_OPTIONS, CalloutType, toggleBold, flattenSelectionToBold, removeRedInSelection } from "./editor-utils";
+import { insertTextAtCursor, removeBlankLinesInSelection, convertBlockMathToInline, convertBlockMathToInlineAndJoin, normalizePunctuation, wrapCallout, removeCallout, CALLOUT_OPTIONS, CalloutType, toggleBold, flattenSelectionToBold, removeRedInSelection } from "./editor-utils";
 import { LanguageInputModal } from "./language-input-modal";
 import { formatLanguageLabel, ToolbarButtonId } from "./settings";
 import { ToolbarOrderModal } from "./toolbar-order-modal";
@@ -103,6 +103,9 @@ export class EditorToolbarManager {
                 break;
             case "callout":
                 this.addCalloutButton(view);
+                break;
+            case "remove-callout":
+                this.addActionButton(view, "取消提示", (editor) => removeCallout(editor));
                 break;
         }
     }

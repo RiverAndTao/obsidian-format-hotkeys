@@ -13,6 +13,7 @@ export type ToolbarButtonId =
     | "typora-mode"
     | "typora-config"
     | "callout"
+    | "remove-callout"
     | "bold"
     | "flatten-to-bold"
     | "remove-red";
@@ -23,6 +24,8 @@ export interface FormatHotkeysSettings {
     toolbarButtonOrder: ToolbarButtonId[];
     typoraMode: boolean;
     typora: TyporaStyleSettings;
+    /** 是否恢复上次编辑位置（切换文件 / 关闭重开后恢复光标/滚动/选区） */
+    restoreEditorPosition: boolean;
 }
 
 export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
@@ -35,6 +38,7 @@ export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
         "flatten-to-bold",
         "remove-red",
         "callout",
+        "remove-callout",
         "remove-blank-lines",
         "dunhao",
         "code-language",
@@ -44,6 +48,7 @@ export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
     ],
     typoraMode: false,
     typora: cloneTyporaStyle(DEFAULT_TYPORA_STYLE),
+    restoreEditorPosition: true,
 };
 
 export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
@@ -59,6 +64,7 @@ export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
     "flatten-to-bold": "变化改加粗",
     "remove-red": "取消变红",
     callout: "Tips",
+    "remove-callout": "取消提示",
 };
 
 export function formatLanguageLabel(language: string): string {
@@ -80,6 +86,16 @@ export class FormatHotkeysSettingTab extends PluginSettingTab {
         containerEl.createEl("h2", { text: "Format Hotkeys 设置" });
         containerEl.createEl("h3", { text: "Typora 模式" });
         new TyporaSettingsPanel(this.plugin, containerEl, () => this.display()).render();
+
+        new Setting(containerEl)
+            .setName("恢复上次编辑位置")
+            .setDesc("切换文件或关闭重开后，恢复到上次的光标、滚动与选区位置（按文件记忆）")
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.restoreEditorPosition).onChange(async (value) => {
+                    this.plugin.settings.restoreEditorPosition = value;
+                    await this.plugin.saveSettings();
+                })
+            );
 
         new Setting(containerEl)
             .setName("默认代码语言")
