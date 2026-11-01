@@ -7,7 +7,12 @@ import {
     type ViewUpdate,
 } from "@codemirror/view";
 import { MarkdownView, type App } from "obsidian";
-import { isRedColorValue } from "./inline-format";
+import {
+    htmlAttrsHaveClass,
+    isRedColorValue,
+    RED_UNDERLINE_CLASS,
+    RED_WAVY_CLASS,
+} from "./inline-format";
 
 export const refreshHtmlStyleEffect = StateEffect.define<null>();
 
@@ -53,12 +58,27 @@ function displayColor(cssColor: string): string {
 
 function innerStyle(attrs: string): string {
     const color = colorFromAttrs(attrs);
+    const redUnderline = htmlAttrsHaveClass(attrs, RED_UNDERLINE_CLASS);
+    const redWavy =
+        htmlAttrsHaveClass(attrs, RED_WAVY_CLASS) || htmlAttrsHaveClass(attrs, "wavy-underline");
     const parts: string[] = [];
     if (color) {
         parts.push(`color: ${displayColor(color)}`);
+    } else if (redUnderline || redWavy) {
+        parts.push("color: var(--typora-red)");
     }
     if (hasBoldWeight(attrs)) {
         parts.push("font-weight: 700");
+    }
+    if (redWavy) {
+        parts.push(
+            "text-decoration-line: underline",
+            "text-decoration-style: wavy",
+            "text-decoration-color: var(--typora-red)",
+            "text-underline-offset: 0.12em"
+        );
+    } else if (redUnderline || /text-decoration(?:-line)?\s*:\s*underline/i.test(attrs)) {
+        parts.push("text-decoration: underline", "text-underline-offset: 0.12em");
     }
     return parts.join("; ");
 }

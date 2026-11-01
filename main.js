@@ -110,8 +110,24 @@ function colorFromAttrs$1(attrs) {
     }
     return null;
 }
+const RED_UNDERLINE_CLASS = "fh-red-underline";
+const RED_WAVY_CLASS = "fh-red-wavy";
+function htmlAttrsHaveClass(attrs, className) {
+    const quoted = attrs.match(/\bclass\s*=\s*["']([^"']+)["']/i);
+    if (!quoted) {
+        return false;
+    }
+    return quoted[1].split(/\s+/).includes(className);
+}
 function hasBoldWeight$1(attrs) {
     return /font-weight\s*:\s*(bold|[6-9]00)/i.test(attrs);
+}
+function isRedEmphasisAttrs(attrs) {
+    if (htmlAttrsHaveClass(attrs, RED_UNDERLINE_CLASS) || htmlAttrsHaveClass(attrs, RED_WAVY_CLASS)) {
+        return true;
+    }
+    const color = colorFromAttrs$1(attrs);
+    return !!color && isRedColorValue(color);
 }
 function wrapAsBold(inner) {
     var _a, _b, _c, _d;
@@ -126,9 +142,8 @@ function wrapAsBold(inner) {
 }
 function unwrapHtmlOnce(text, toBold, redOnly) {
     const replaceTag = (attrs, inner) => {
-        const color = colorFromAttrs$1(attrs);
         if (redOnly) {
-            if (!color || !isRedColorValue(color)) {
+            if (!isRedEmphasisAttrs(attrs)) {
                 return null;
             }
             if (hasBoldWeight$1(attrs)) {
@@ -144,13 +159,12 @@ function unwrapHtmlOnce(text, toBold, redOnly) {
     });
     out = out.replace(/<span\b([^>]*)>([\s\S]*?)<\/span>/gi, (full, attrs, inner) => {
         if (redOnly) {
-            const color = colorFromAttrs$1(attrs);
-            if (!color || !isRedColorValue(color)) {
+            if (!isRedEmphasisAttrs(attrs)) {
                 return full;
             }
             return hasBoldWeight$1(attrs) ? wrapAsBold(inner) : inner;
         }
-        if (!colorFromAttrs$1(attrs) && !hasBoldWeight$1(attrs)) {
+        if (!colorFromAttrs$1(attrs) && !hasBoldWeight$1(attrs) && !isRedEmphasisAttrs(attrs)) {
             return full;
         }
         return wrapAsBold(inner);
@@ -188,6 +202,15 @@ const UNDO_ORIGIN = "format-hotkeys";
 /** 一次替换，进入同一个撤销步 */
 function replaceRangeOnce(editor, replacement, from = editor.getCursor("from"), to = editor.getCursor("to")) {
     editor.replaceRange(replacement, from, to, UNDO_ORIGIN);
+}
+const RED_UNDERLINE_OPEN = '<span class="fh-red-underline">';
+const RED_WAVY_OPEN = '<span class="fh-red-wavy">';
+const SPAN_CLOSE = "</span>";
+function toggleRedUnderline(editor) {
+    toggleWrap(editor, RED_UNDERLINE_OPEN, SPAN_CLOSE);
+}
+function toggleRedWavy(editor) {
+    toggleWrap(editor, RED_WAVY_OPEN, SPAN_CLOSE);
 }
 /** 切换包裹格式：已包裹则取消，否则添加。有选区时结束后光标落在词后，不保持选中。 */
 function toggleWrap(editor, open, close) {
@@ -1366,6 +1389,8 @@ const DEFAULT_SETTINGS = {
         "bold",
         "flatten-to-bold",
         "remove-red",
+        "red-underline",
+        "red-wavy",
         "callout",
         "remove-callout",
         "table-to-md",
@@ -1393,6 +1418,8 @@ const TOOLBAR_BUTTON_LABELS = {
     bold: "加粗",
     "flatten-to-bold": "变化改加粗",
     "remove-red": "取消变红",
+    "red-underline": "红+下划线",
+    "red-wavy": "红+波浪线",
     callout: "Tips",
     "remove-callout": "取消提示",
     "table-to-md": "表格转MD",
@@ -1663,6 +1690,12 @@ class EditorToolbarManager {
                 break;
             case "remove-red":
                 this.addActionButton(view, "取消变红", (editor) => removeRedInSelection(editor));
+                break;
+            case "red-underline":
+                this.addActionButton(view, "红+下划线", (editor) => toggleRedUnderline(editor));
+                break;
+            case "red-wavy":
+                this.addActionButton(view, "红+波浪线", (editor) => toggleRedWavy(editor));
                 break;
             case "remove-blank-lines":
                 this.addActionButton(view, "去除空格行", (editor) => removeBlankLinesInSelection(editor));
@@ -2279,12 +2312,23 @@ function displayColor(cssColor) {
 }
 function innerStyle(attrs) {
     const color = colorFromAttrs(attrs);
+    const redUnderline = htmlAttrsHaveClass(attrs, RED_UNDERLINE_CLASS);
+    const redWavy = htmlAttrsHaveClass(attrs, RED_WAVY_CLASS) || htmlAttrsHaveClass(attrs, "wavy-underline");
     const parts = [];
     if (color) {
         parts.push(`color: ${displayColor(color)}`);
     }
+    else if (redUnderline || redWavy) {
+        parts.push("color: var(--typora-red)");
+    }
     if (hasBoldWeight(attrs)) {
         parts.push("font-weight: 700");
+    }
+    if (redWavy) {
+        parts.push("text-decoration-line: underline", "text-decoration-style: wavy", "text-decoration-color: var(--typora-red)", "text-underline-offset: 0.12em");
+    }
+    else if (redUnderline || /text-decoration(?:-line)?\s*:\s*underline/i.test(attrs)) {
+        parts.push("text-decoration: underline", "text-underline-offset: 0.12em");
     }
     return parts.join("; ");
 }
@@ -2679,6 +2723,16 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 editorCallback: (editor) => removeRedInSelection(editor),
             });
             this.addCommand({
+                id: "toggle-red-underline",
+                name: "切换红色下划线",
+                editorCallback: (editor) => toggleRedUnderline(editor),
+            });
+            this.addCommand({
+                id: "toggle-red-wavy",
+                name: "切换红色波浪线",
+                editorCallback: (editor) => toggleRedWavy(editor),
+            });
+            this.addCommand({
                 id: "toggle-code-block",
                 name: "创建代码块",
                 editorCallback: (editor) => toggleCodeBlock(editor, this.settings.defaultCodeLanguage),
@@ -2984,6 +3038,8 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 "bold",
                 "flatten-to-bold",
                 "remove-red",
+                "red-underline",
+                "red-wavy",
                 "callout",
                 "remove-callout",
                 "table-to-md",

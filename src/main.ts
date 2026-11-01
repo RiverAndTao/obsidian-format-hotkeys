@@ -15,6 +15,8 @@ import {
     toggleBold,
     flattenSelectionToBold,
     removeRedInSelection,
+    toggleRedUnderline,
+    toggleRedWavy,
 } from "./editor-utils";
 import { DEFAULT_SETTINGS, FormatHotkeysSettingTab, FormatHotkeysSettings, ToolbarButtonId } from "./settings";
 import { EditorToolbarManager } from "./toolbar";
@@ -109,6 +111,18 @@ export default class FormatHotkeysPlugin extends Plugin {
             id: "remove-red",
             name: "取消选区变红",
             editorCallback: (editor: Editor) => removeRedInSelection(editor),
+        });
+
+        this.addCommand({
+            id: "toggle-red-underline",
+            name: "切换红色下划线",
+            editorCallback: (editor: Editor) => toggleRedUnderline(editor),
+        });
+
+        this.addCommand({
+            id: "toggle-red-wavy",
+            name: "切换红色波浪线",
+            editorCallback: (editor: Editor) => toggleRedWavy(editor),
         });
 
         this.addCommand({
@@ -447,6 +461,8 @@ export default class FormatHotkeysPlugin extends Plugin {
             "bold",
             "flatten-to-bold",
             "remove-red",
+            "red-underline",
+            "red-wavy",
             "callout",
             "remove-callout",
             "table-to-md",

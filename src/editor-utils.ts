@@ -13,6 +13,18 @@ export function replaceRangeOnce(
     editor.replaceRange(replacement, from, to, UNDO_ORIGIN);
 }
 
+export const RED_UNDERLINE_OPEN = '<span class="fh-red-underline">';
+export const RED_WAVY_OPEN = '<span class="fh-red-wavy">';
+const SPAN_CLOSE = "</span>";
+
+export function toggleRedUnderline(editor: Editor): void {
+    toggleWrap(editor, RED_UNDERLINE_OPEN, SPAN_CLOSE);
+}
+
+export function toggleRedWavy(editor: Editor): void {
+    toggleWrap(editor, RED_WAVY_OPEN, SPAN_CLOSE);
+}
+
 /** 切换包裹格式：已包裹则取消，否则添加。有选区时结束后光标落在词后，不保持选中。 */
 export function toggleWrap(editor: Editor, open: string, close: string): void {
     const selected = editor.getSelection();

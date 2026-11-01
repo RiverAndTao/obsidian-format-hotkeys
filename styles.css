@@ -1317,6 +1317,21 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-footref {
     text-underline-offset: 0.12em;
 }
 
+/* 红色下划线 / 红色波浪线 */
+.fh-red-underline {
+    color: var(--typora-red);
+    text-decoration: underline;
+    text-underline-offset: 0.12em;
+}
+
+.fh-red-wavy {
+    color: var(--typora-red);
+    text-decoration-line: underline;
+    text-decoration-style: wavy;
+    text-decoration-color: var(--typora-red);
+    text-underline-offset: 0.12em;
+}
+
 /*
  * 图片居中（对齐 Typora，但避免破坏 CM6 行宽）：
  * - 阅读/预览：img 块级居中

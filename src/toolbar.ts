@@ -1,6 +1,6 @@
 import { Editor, MarkdownView, Menu } from "obsidian";
 import type FormatHotkeysPlugin from "./main";
-import { insertTextAtCursor, removeBlankLinesInSelection, convertBlockMathToInline, convertBlockMathToInlineAndJoin, normalizePunctuation, wrapCallout, removeCallout, convertHtmlTableToMarkdown, CALLOUT_OPTIONS, CalloutType, toggleBold, flattenSelectionToBold, removeRedInSelection } from "./editor-utils";
+import { insertTextAtCursor, removeBlankLinesInSelection, convertBlockMathToInline, convertBlockMathToInlineAndJoin, normalizePunctuation, wrapCallout, removeCallout, convertHtmlTableToMarkdown, CALLOUT_OPTIONS, CalloutType, toggleBold, flattenSelectionToBold, removeRedInSelection, toggleRedUnderline, toggleRedWavy } from "./editor-utils";
 import { LanguageInputModal } from "./language-input-modal";
 import { formatLanguageLabel, ToolbarButtonId } from "./settings";
 import { ToolbarOrderModal } from "./toolbar-order-modal";
@@ -82,6 +82,12 @@ export class EditorToolbarManager {
                 break;
             case "remove-red":
                 this.addActionButton(view, "取消变红", (editor) => removeRedInSelection(editor));
+                break;
+            case "red-underline":
+                this.addActionButton(view, "红+下划线", (editor) => toggleRedUnderline(editor));
+                break;
+            case "red-wavy":
+                this.addActionButton(view, "红+波浪线", (editor) => toggleRedWavy(editor));
                 break;
             case "remove-blank-lines":
                 this.addActionButton(view, "去除空格行", (editor) => removeBlankLinesInSelection(editor));

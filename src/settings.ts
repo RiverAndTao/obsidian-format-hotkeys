@@ -17,7 +17,9 @@ export type ToolbarButtonId =
     | "table-to-md"
     | "bold"
     | "flatten-to-bold"
-    | "remove-red";
+    | "remove-red"
+    | "red-underline"
+    | "red-wavy";
 
 export interface FormatHotkeysSettings {
     defaultCodeLanguage: string;
@@ -40,6 +42,8 @@ export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
         "bold",
         "flatten-to-bold",
         "remove-red",
+        "red-underline",
+        "red-wavy",
         "callout",
         "remove-callout",
         "table-to-md",
@@ -68,6 +72,8 @@ export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
     bold: "加粗",
     "flatten-to-bold": "变化改加粗",
     "remove-red": "取消变红",
+    "red-underline": "红+下划线",
+    "red-wavy": "红+波浪线",
     callout: "Tips",
     "remove-callout": "取消提示",
     "table-to-md": "表格转MD",

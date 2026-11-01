@@ -63,8 +63,27 @@ function colorFromAttrs(attrs: string): string | null {
     return null;
 }
 
+export const RED_UNDERLINE_CLASS = "fh-red-underline";
+export const RED_WAVY_CLASS = "fh-red-wavy";
+
+export function htmlAttrsHaveClass(attrs: string, className: string): boolean {
+    const quoted = attrs.match(/\bclass\s*=\s*["']([^"']+)["']/i);
+    if (!quoted) {
+        return false;
+    }
+    return quoted[1].split(/\s+/).includes(className);
+}
+
 function hasBoldWeight(attrs: string): boolean {
     return /font-weight\s*:\s*(bold|[6-9]00)/i.test(attrs);
+}
+
+export function isRedEmphasisAttrs(attrs: string): boolean {
+    if (htmlAttrsHaveClass(attrs, RED_UNDERLINE_CLASS) || htmlAttrsHaveClass(attrs, RED_WAVY_CLASS)) {
+        return true;
+    }
+    const color = colorFromAttrs(attrs);
+    return !!color && isRedColorValue(color);
 }
 
 function wrapAsBold(inner: string): string {
@@ -80,9 +99,8 @@ function wrapAsBold(inner: string): string {
 
 function unwrapHtmlOnce(text: string, toBold: boolean, redOnly: boolean): string {
     const replaceTag = (attrs: string, inner: string): string | null => {
-        const color = colorFromAttrs(attrs);
         if (redOnly) {
-            if (!color || !isRedColorValue(color)) {
+            if (!isRedEmphasisAttrs(attrs)) {
                 return null;
             }
             if (hasBoldWeight(attrs)) {
@@ -100,13 +118,12 @@ function unwrapHtmlOnce(text: string, toBold: boolean, redOnly: boolean): string
 
     out = out.replace(/<span\b([^>]*)>([\s\S]*?)<\/span>/gi, (full, attrs: string, inner: string) => {
         if (redOnly) {
-            const color = colorFromAttrs(attrs);
-            if (!color || !isRedColorValue(color)) {
+            if (!isRedEmphasisAttrs(attrs)) {
                 return full;
             }
             return hasBoldWeight(attrs) ? wrapAsBold(inner) : inner;
         }
-        if (!colorFromAttrs(attrs) && !hasBoldWeight(attrs)) {
+        if (!colorFromAttrs(attrs) && !hasBoldWeight(attrs) && !isRedEmphasisAttrs(attrs)) {
             return full;
         }
         return wrapAsBold(inner);
