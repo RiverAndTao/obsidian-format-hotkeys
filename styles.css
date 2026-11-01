@@ -924,6 +924,48 @@ body.typora-mode-active :is(
     background-color: var(--typora-table-stripe) !important;
 }
 
+/*
+ * 点击表格单元格时，Obsidian 会在格子里挂一层嵌套 CodeMirror。
+ * 正文用的 cm-content / cm-line / cm-scroller 边距不能套进去，
+ * 否则表格会突然变宽、下移。
+ */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget .cm-content,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget .cm-scroller,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-embed-block:has(table) .cm-content,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-embed-block:has(table) .cm-scroller,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-html-embed:has(table) .cm-content,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-html-embed:has(table) .cm-scroller {
+    max-width: none !important;
+    width: auto !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget .cm-line,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-embed-block:has(table) .cm-line,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-html-embed:has(table) .cm-line {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    background-color: transparent !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget table {
+    table-layout: fixed !important;
+}
+
+/* 单元格内边距只走 wrapper，避免点击后 td 边距 + 编辑器边距叠两层 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget :is(th, td) {
+    padding: 0 !important;
+}
+
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-table-widget .table-cell-wrapper {
+    padding: var(--typora-table-cell-padding) !important;
+    box-sizing: border-box;
+}
+
 /* =====================================================
    第十四部分：段落间距
    ===================================================== */

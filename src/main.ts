@@ -11,6 +11,7 @@ import {
     normalizePunctuation,
     wrapCallout,
     removeCallout,
+    convertHtmlTableToMarkdown,
     toggleBold,
     flattenSelectionToBold,
     removeRedInSelection,
@@ -19,6 +20,7 @@ import { DEFAULT_SETTINGS, FormatHotkeysSettingTab, FormatHotkeysSettings, Toolb
 import { EditorToolbarManager } from "./toolbar";
 import { TyporaConfigModal } from "./typora-config-modal";
 import { readViewState, applyViewState, statesEqual, EditorStateSnapshot } from "./editor-state";
+import { applyTableStableStyle } from "./table-stable";
 import { applyTyporaStyleVars, clearTyporaStyleVars, mergeTyporaStyle } from "./typora-style";
 import { createParenListExtension, refreshParenListDecorations } from "./typora-paren-list";
 import { createAsmHighlightExtension, refreshAsmHighlight, registerAsmPrismLanguages } from "./asm-highlight";
@@ -160,6 +162,12 @@ export default class FormatHotkeysPlugin extends Plugin {
         });
 
         this.addCommand({
+            id: "html-table-to-md",
+            name: "HTML 表格转 Markdown 表格",
+            editorCallback: (editor: Editor) => convertHtmlTableToMarkdown(editor),
+        });
+
+        this.addCommand({
             id: "open-typora-config",
             name: "打开 Typora 配置",
             callback: () => new TyporaConfigModal(this.app, this).open(),
@@ -209,12 +217,14 @@ export default class FormatHotkeysPlugin extends Plugin {
         this.restoreState();
 
         this.applyTyporaMode();
+        this.applyTableStable();
         this.setupTableStripeRefresh();
         this.setupOutlineMarkdown();
     }
 
     onunload(): void {
         this.writeDb();
+        applyTableStableStyle(false);
 
         const bodyEl = document.body;
         bodyEl.removeClass("typora-mode-active");
@@ -238,6 +248,11 @@ export default class FormatHotkeysPlugin extends Plugin {
         refreshAsmHighlight(this.app);
         refreshHtmlStyleDecorations(this.app);
         scheduleTableStripeRefresh(this.app);
+    }
+
+    /** 应用/移除表格编辑宽度稳定样式（设置开关切换时也调用） */
+    applyTableStable(): void {
+        applyTableStableStyle(this.settings.tableWidthStable);
     }
 
     /** 轮询：当前文件位置发生变化时写入内存 db */
@@ -434,6 +449,7 @@ export default class FormatHotkeysPlugin extends Plugin {
             "remove-red",
             "callout",
             "remove-callout",
+            "table-to-md",
             "remove-blank-lines",
             "dunhao",
             "code-language",

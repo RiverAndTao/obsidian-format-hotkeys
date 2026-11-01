@@ -14,6 +14,7 @@ export type ToolbarButtonId =
     | "typora-config"
     | "callout"
     | "remove-callout"
+    | "table-to-md"
     | "bold"
     | "flatten-to-bold"
     | "remove-red";
@@ -26,6 +27,8 @@ export interface FormatHotkeysSettings {
     typora: TyporaStyleSettings;
     /** 是否恢复上次编辑位置（切换文件 / 关闭重开后恢复光标/滚动/选区） */
     restoreEditorPosition: boolean;
+    /** 表格编辑宽度稳定：统一编辑态/预览态表格宽度，避免点击编辑时跳动 */
+    tableWidthStable: boolean;
 }
 
 export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
@@ -39,6 +42,7 @@ export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
         "remove-red",
         "callout",
         "remove-callout",
+        "table-to-md",
         "remove-blank-lines",
         "dunhao",
         "code-language",
@@ -49,6 +53,7 @@ export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
     typoraMode: false,
     typora: cloneTyporaStyle(DEFAULT_TYPORA_STYLE),
     restoreEditorPosition: true,
+    tableWidthStable: true,
 };
 
 export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
@@ -65,6 +70,7 @@ export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
     "remove-red": "取消变红",
     callout: "Tips",
     "remove-callout": "取消提示",
+    "table-to-md": "表格转MD",
 };
 
 export function formatLanguageLabel(language: string): string {
@@ -94,6 +100,17 @@ export class FormatHotkeysSettingTab extends PluginSettingTab {
                 toggle.setValue(this.plugin.settings.restoreEditorPosition).onChange(async (value) => {
                     this.plugin.settings.restoreEditorPosition = value;
                     await this.plugin.saveSettings();
+                })
+            );
+
+        new Setting(containerEl)
+            .setName("表格编辑宽度稳定")
+            .setDesc("统一编辑态与预览态的表格宽度，避免点击表格编辑时列宽跳动")
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.tableWidthStable).onChange(async (value) => {
+                    this.plugin.settings.tableWidthStable = value;
+                    await this.plugin.saveSettings();
+                    this.plugin.applyTableStable();
                 })
             );
 

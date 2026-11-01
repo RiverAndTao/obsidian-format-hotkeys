@@ -507,6 +507,128 @@ export function removeCallout(editor: Editor): void {
     editor.setSelection(startPos, endSel);
 }
 
+/** 清理一个 HTML 单元格内容：去标签、解码实体、压缩空白、转义管道符 */
+function cleanHtmlCell(raw: string): string {
+    let s = raw;
+    // <br> 视为换行（Markdown 单元格内用空格代替）
+    s = s.replace(/<br\s*\/?\s*>/gi, " ");
+    // 去掉其余标签
+    s = s.replace(/<[^>]+>/g, "");
+    // 解码常见 HTML 实体
+    s = s
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">")
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/g, "'");
+    // 压缩空白（多行单元格合并为单行）
+    s = s.replace(/\s+/g, " ").trim();
+    // 转义 Markdown 表格分隔符
+    s = s.replace(/\|/g, "\\|");
+    return s;
+}
+
+/** 把 HTML `<table>` 文本解析为 Markdown 表格；无法解析时返回 null */
+export function htmlTableToMarkdown(html: string): string | null {
+    const tableMatch = html.match(/<table[\s\S]*?<\/table>/i);
+    if (!tableMatch) return null;
+    const table = tableMatch[0];
+
+    const rows: string[][] = [];
+    const trRe = /<tr[\s\S]*?<\/tr>/gi;
+    let trMatch: RegExpExecArray | null;
+    while ((trMatch = trRe.exec(table)) !== null) {
+        const cells: string[] = [];
+        const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+        let cellMatch: RegExpExecArray | null;
+        while ((cellMatch = cellRe.exec(trMatch[0])) !== null) {
+            cells.push(cleanHtmlCell(cellMatch[1]));
+        }
+        if (cells.length > 0) {
+            rows.push(cells);
+        }
+    }
+
+    if (rows.length === 0) return null;
+
+    // 第一行作为表头；列数以最宽行为准
+    const colCount = Math.max(...rows.map((r) => r.length));
+    const header = rows[0];
+    const body = rows.slice(1);
+
+    const padRow = (cells: string[]): string => {
+        const padded = [...cells];
+        while (padded.length < colCount) padded.push("");
+        return `| ${padded.join(" | ")} |`;
+    };
+
+    const lines: string[] = [padRow(header), `| ${Array(colCount).fill("---").join(" | ")} |`];
+    for (const row of body) {
+        lines.push(padRow(row));
+    }
+    return lines.join("\n");
+}
+
+/** 光标不在表格内时，向上/向下查找包围光标的 `<table>...</table>` 范围 */
+function findEnclosingTable(
+    editor: Editor,
+    pos: { line: number; ch: number }
+): { text: string; start: { line: number; ch: number }; end: { line: number; ch: number } } | null {
+    let startLine = -1;
+    for (let l = pos.line; l >= 0; l--) {
+        if (/<table[\s>]/i.test(editor.getLine(l))) {
+            startLine = l;
+            break;
+        }
+    }
+    if (startLine === -1) return null;
+
+    let endLine = -1;
+    const lineCount = editor.lineCount();
+    for (let l = pos.line; l < lineCount; l++) {
+        if (/<\/table>/i.test(editor.getLine(l))) {
+            endLine = l;
+            break;
+        }
+    }
+    if (endLine === -1) return null;
+
+    const lines: string[] = [];
+    for (let l = startLine; l <= endLine; l++) {
+        lines.push(editor.getLine(l));
+    }
+    return {
+        text: lines.join("\n"),
+        start: { line: startLine, ch: 0 },
+        end: { line: endLine, ch: editor.getLine(endLine).length },
+    };
+}
+
+/** 将选中（或光标所在）的 HTML 表格转换为 Obsidian Markdown 表格 */
+export function convertHtmlTableToMarkdown(editor: Editor): void {
+    const from = editor.getCursor("from");
+    const to = editor.getCursor("to");
+    let text = editor.getSelection();
+    let start = from;
+    let end = to;
+
+    if (text.trim().length === 0) {
+        const found = findEnclosingTable(editor, from);
+        if (!found) return;
+        text = found.text;
+        start = found.start;
+        end = found.end;
+    }
+
+    const md = htmlTableToMarkdown(text);
+    if (md === null) return;
+
+    replaceRangeOnce(editor, md, start, end);
+    const lines = md.split("\n");
+    editor.setSelection(start, { line: start.line + lines.length - 1, ch: lines[lines.length - 1].length });
+}
+
 /** 切换选区 Markdown 加粗 `** **` */
 export function toggleBold(editor: Editor): void {
     const selected = editor.getSelection();

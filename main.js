@@ -589,6 +589,118 @@ function removeCallout(editor) {
     const endSel = { line: headerLine + out.length - 1, ch: out[out.length - 1].length };
     editor.setSelection(startPos, endSel);
 }
+/** 清理一个 HTML 单元格内容：去标签、解码实体、压缩空白、转义管道符 */
+function cleanHtmlCell(raw) {
+    let s = raw;
+    // <br> 视为换行（Markdown 单元格内用空格代替）
+    s = s.replace(/<br\s*\/?\s*>/gi, " ");
+    // 去掉其余标签
+    s = s.replace(/<[^>]+>/g, "");
+    // 解码常见 HTML 实体
+    s = s
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">")
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/g, "'");
+    // 压缩空白（多行单元格合并为单行）
+    s = s.replace(/\s+/g, " ").trim();
+    // 转义 Markdown 表格分隔符
+    s = s.replace(/\|/g, "\\|");
+    return s;
+}
+/** 把 HTML `<table>` 文本解析为 Markdown 表格；无法解析时返回 null */
+function htmlTableToMarkdown(html) {
+    const tableMatch = html.match(/<table[\s\S]*?<\/table>/i);
+    if (!tableMatch)
+        return null;
+    const table = tableMatch[0];
+    const rows = [];
+    const trRe = /<tr[\s\S]*?<\/tr>/gi;
+    let trMatch;
+    while ((trMatch = trRe.exec(table)) !== null) {
+        const cells = [];
+        const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+        let cellMatch;
+        while ((cellMatch = cellRe.exec(trMatch[0])) !== null) {
+            cells.push(cleanHtmlCell(cellMatch[1]));
+        }
+        if (cells.length > 0) {
+            rows.push(cells);
+        }
+    }
+    if (rows.length === 0)
+        return null;
+    // 第一行作为表头；列数以最宽行为准
+    const colCount = Math.max(...rows.map((r) => r.length));
+    const header = rows[0];
+    const body = rows.slice(1);
+    const padRow = (cells) => {
+        const padded = [...cells];
+        while (padded.length < colCount)
+            padded.push("");
+        return `| ${padded.join(" | ")} |`;
+    };
+    const lines = [padRow(header), `| ${Array(colCount).fill("---").join(" | ")} |`];
+    for (const row of body) {
+        lines.push(padRow(row));
+    }
+    return lines.join("\n");
+}
+/** 光标不在表格内时，向上/向下查找包围光标的 `<table>...</table>` 范围 */
+function findEnclosingTable(editor, pos) {
+    let startLine = -1;
+    for (let l = pos.line; l >= 0; l--) {
+        if (/<table[\s>]/i.test(editor.getLine(l))) {
+            startLine = l;
+            break;
+        }
+    }
+    if (startLine === -1)
+        return null;
+    let endLine = -1;
+    const lineCount = editor.lineCount();
+    for (let l = pos.line; l < lineCount; l++) {
+        if (/<\/table>/i.test(editor.getLine(l))) {
+            endLine = l;
+            break;
+        }
+    }
+    if (endLine === -1)
+        return null;
+    const lines = [];
+    for (let l = startLine; l <= endLine; l++) {
+        lines.push(editor.getLine(l));
+    }
+    return {
+        text: lines.join("\n"),
+        start: { line: startLine, ch: 0 },
+        end: { line: endLine, ch: editor.getLine(endLine).length },
+    };
+}
+/** 将选中（或光标所在）的 HTML 表格转换为 Obsidian Markdown 表格 */
+function convertHtmlTableToMarkdown(editor) {
+    const from = editor.getCursor("from");
+    const to = editor.getCursor("to");
+    let text = editor.getSelection();
+    let start = from;
+    let end = to;
+    if (text.trim().length === 0) {
+        const found = findEnclosingTable(editor, from);
+        if (!found)
+            return;
+        text = found.text;
+        start = found.start;
+        end = found.end;
+    }
+    const md = htmlTableToMarkdown(text);
+    if (md === null)
+        return;
+    replaceRangeOnce(editor, md, start, end);
+    const lines = md.split("\n");
+    editor.setSelection(start, { line: start.line + lines.length - 1, ch: lines[lines.length - 1].length });
+}
 /** 切换选区 Markdown 加粗 `** **` */
 function toggleBold(editor) {
     const selected = editor.getSelection();
@@ -1256,6 +1368,7 @@ const DEFAULT_SETTINGS = {
         "remove-red",
         "callout",
         "remove-callout",
+        "table-to-md",
         "remove-blank-lines",
         "dunhao",
         "code-language",
@@ -1266,6 +1379,7 @@ const DEFAULT_SETTINGS = {
     typoraMode: false,
     typora: cloneTyporaStyle(DEFAULT_TYPORA_STYLE),
     restoreEditorPosition: true,
+    tableWidthStable: true,
 };
 const TOOLBAR_BUTTON_LABELS = {
     "remove-blank-lines": "去除空格行",
@@ -1281,6 +1395,7 @@ const TOOLBAR_BUTTON_LABELS = {
     "remove-red": "取消变红",
     callout: "Tips",
     "remove-callout": "取消提示",
+    "table-to-md": "表格转MD",
 };
 function formatLanguageLabel(language) {
     return language.trim() === "" ? "无" : language;
@@ -1302,6 +1417,14 @@ class FormatHotkeysSettingTab extends ObsidianApi.PluginSettingTab {
             .addToggle((toggle) => toggle.setValue(this.plugin.settings.restoreEditorPosition).onChange((value) => __awaiter(this, void 0, void 0, function* () {
             this.plugin.settings.restoreEditorPosition = value;
             yield this.plugin.saveSettings();
+        })));
+        new ObsidianApi.Setting(containerEl)
+            .setName("表格编辑宽度稳定")
+            .setDesc("统一编辑态与预览态的表格宽度，避免点击表格编辑时列宽跳动")
+            .addToggle((toggle) => toggle.setValue(this.plugin.settings.tableWidthStable).onChange((value) => __awaiter(this, void 0, void 0, function* () {
+            this.plugin.settings.tableWidthStable = value;
+            yield this.plugin.saveSettings();
+            this.plugin.applyTableStable();
         })));
         new ObsidianApi.Setting(containerEl)
             .setName("默认代码语言")
@@ -1565,6 +1688,9 @@ class EditorToolbarManager {
             case "remove-callout":
                 this.addActionButton(view, "取消提示", (editor) => removeCallout(editor));
                 break;
+            case "table-to-md":
+                this.addActionButton(view, "表格转MD", (editor) => convertHtmlTableToMarkdown(editor));
+                break;
         }
     }
     addTyporaModeButton(_view) {
@@ -1771,6 +1897,72 @@ function statesEqual(a, b) {
     if (a.scroll !== undefined && a.scroll !== b.scroll)
         return false;
     return true;
+}
+
+/**
+ * 表格编辑宽度/位置稳定：
+ * Live Preview 点击单元格时会在格子里挂嵌套 CodeMirror。
+ * 若正文边距、列宽策略、widget 外壳不一致，表格会突然变大并移位。
+ * 开启时注入 <style>，关闭时移除。
+ */
+const TABLE_STABLE_STYLE_ID = "format-hotkeys-table-stable";
+const TABLE_STABLE_CSS = `
+/* 真正作用在 table 上：固定列宽、占满行宽 */
+.markdown-source-view.mod-cm6 .cm-table-widget table,
+.markdown-source-view.mod-cm6 .cm-embed-block:has(table) table,
+.markdown-preview-view table {
+    table-layout: fixed !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+}
+
+.markdown-source-view.mod-cm6 .cm-table-widget,
+.markdown-source-view.mod-cm6 .cm-table-widget .table-wrapper,
+.markdown-source-view.mod-cm6.is-readable-line-width .cm-table-widget,
+.markdown-preview-view.is-readable-line-width :is(table, .table-wrapper) {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+}
+
+/* 长表格横向滚动，避免挤压列宽 */
+.markdown-source-view.mod-cm6 .cm-table-widget .table-wrapper {
+    overflow-x: auto;
+}
+
+/* 嵌套单元格编辑器：清掉正文边距，避免点击后撑开表格 */
+.markdown-source-view.mod-cm6 .cm-table-widget .cm-content,
+.markdown-source-view.mod-cm6 .cm-table-widget .cm-scroller,
+.markdown-source-view.mod-cm6 .cm-embed-block:has(table) .cm-content,
+.markdown-source-view.mod-cm6 .cm-embed-block:has(table) .cm-scroller {
+    max-width: none !important;
+    width: auto !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.markdown-source-view.mod-cm6 .cm-table-widget .cm-line,
+.markdown-source-view.mod-cm6 .cm-embed-block:has(table) .cm-line {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+}
+`;
+function applyTableStableStyle(enabled) {
+    let tag = document.getElementById(TABLE_STABLE_STYLE_ID);
+    if (!enabled) {
+        tag === null || tag === void 0 ? void 0 : tag.remove();
+        return;
+    }
+    if (!tag) {
+        tag = document.createElement("style");
+        tag.id = TABLE_STABLE_STYLE_ID;
+        document.head.appendChild(tag);
+    }
+    tag.textContent = TABLE_STABLE_CSS;
 }
 
 /** 行首 `(1)` / `（1）` 括号编号，课本常用写法 */
@@ -2523,6 +2715,11 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 editorCallback: (editor) => removeCallout(editor),
             });
             this.addCommand({
+                id: "html-table-to-md",
+                name: "HTML 表格转 Markdown 表格",
+                editorCallback: (editor) => convertHtmlTableToMarkdown(editor),
+            });
+            this.addCommand({
                 id: "open-typora-config",
                 name: "打开 Typora 配置",
                 callback: () => new TyporaConfigModal(this.app, this).open(),
@@ -2558,6 +2755,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             });
             this.restoreState();
             this.applyTyporaMode();
+            this.applyTableStable();
             this.setupTableStripeRefresh();
             this.setupOutlineMarkdown();
         });
@@ -2565,6 +2763,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
     onunload() {
         var _a, _b;
         this.writeDb();
+        applyTableStableStyle(false);
         const bodyEl = document.body;
         bodyEl.removeClass("typora-mode-active");
         bodyEl.removeClass("typora-hide-syntax");
@@ -2586,6 +2785,10 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
         refreshAsmHighlight(this.app);
         refreshHtmlStyleDecorations(this.app);
         scheduleTableStripeRefresh(this.app);
+    }
+    /** 应用/移除表格编辑宽度稳定样式（设置开关切换时也调用） */
+    applyTableStable() {
+        applyTableStableStyle(this.settings.tableWidthStable);
     }
     /** 轮询：当前文件位置发生变化时写入内存 db */
     checkStateChanged() {
@@ -2778,6 +2981,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 "remove-red",
                 "callout",
                 "remove-callout",
+                "table-to-md",
                 "remove-blank-lines",
                 "dunhao",
                 "code-language",
