@@ -13,7 +13,7 @@ export function replaceRangeOnce(
     editor.replaceRange(replacement, from, to, UNDO_ORIGIN);
 }
 
-/** 切换包裹格式：已包裹则取消，否则添加 */
+/** 切换包裹格式：已包裹则取消，否则添加。有选区时结束后光标落在词后，不保持选中。 */
 export function toggleWrap(editor: Editor, open: string, close: string): void {
     const selected = editor.getSelection();
     const from = editor.getCursor("from");
@@ -22,10 +22,7 @@ export function toggleWrap(editor: Editor, open: string, close: string): void {
     if (from.line !== to.line) {
         editor.replaceSelection(open + selected + close, UNDO_ORIGIN);
         if (selected.length > 0) {
-            editor.setSelection(
-                { line: from.line, ch: from.ch + open.length },
-                { line: to.line, ch: to.ch + open.length }
-            );
+            editor.setCursor({ line: to.line, ch: to.ch });
         } else {
             editor.setCursor({ line: from.line, ch: from.ch + open.length });
         }
@@ -43,19 +40,13 @@ export function toggleWrap(editor: Editor, open: string, close: string): void {
         line.substring(to.ch, afterEnd) === close
     ) {
         editor.replaceRange(selected, { line: from.line, ch: beforeStart }, { line: to.line, ch: afterEnd }, UNDO_ORIGIN);
-        editor.setSelection(
-            { line: from.line, ch: beforeStart },
-            { line: to.line, ch: beforeStart + selected.length }
-        );
+        editor.setCursor({ line: from.line, ch: beforeStart + selected.length });
         return;
     }
 
     editor.replaceSelection(open + selected + close, UNDO_ORIGIN);
     if (selected.length > 0) {
-        editor.setSelection(
-            { line: from.line, ch: from.ch + open.length },
-            { line: to.line, ch: to.ch + open.length }
-        );
+        editor.setCursor({ line: to.line, ch: to.ch + open.length });
     } else {
         editor.setCursor({ line: from.line, ch: from.ch + open.length });
     }
