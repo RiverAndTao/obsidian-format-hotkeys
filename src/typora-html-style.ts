@@ -107,9 +107,14 @@ function closingLength(full: string): number {
     return close ? close[0].length : 0;
 }
 
-function lineIsActive(view: EditorView, lineFrom: number, lineTo: number): boolean {
+/** 光标/选区是否落在标签字符上（不含内部文字），落在标签上才露出源码便于改色值 */
+function selectionTouches(view: EditorView, from: number, to: number): boolean {
     for (const range of view.state.selection.ranges) {
-        if (range.from <= lineTo && range.to >= lineFrom) {
+        if (range.from === range.to) {
+            if (range.from > from && range.from < to) {
+                return true;
+            }
+        } else if (range.from < to && range.to > from) {
             return true;
         }
     }
@@ -141,8 +146,6 @@ function buildDecorations(view: EditorView): DecorationSet {
         }
 
         const hits = collectHits(line.text, line.from);
-        const active = lineIsActive(view, line.from, line.to);
-        const hide = hideTags && !active;
         let lastTo = -1;
 
         for (const hit of hits) {
@@ -150,7 +153,8 @@ function buildDecorations(view: EditorView): DecorationSet {
                 continue;
             }
             lastTo = hit.to;
-            if (hide && hit.innerFrom > hit.from) {
+            // 光标在红字内部时也隐藏 <font>/<span> 标签，Ctrl+R 后不必再点别处
+            if (hideTags && hit.innerFrom > hit.from && !selectionTouches(view, hit.from, hit.innerFrom)) {
                 builder.add(hit.from, hit.innerFrom, hideTagDeco);
             }
             if (hit.innerTo > hit.innerFrom) {
@@ -163,7 +167,7 @@ function buildDecorations(view: EditorView): DecorationSet {
                     })
                 );
             }
-            if (hide && hit.to > hit.innerTo) {
+            if (hideTags && hit.to > hit.innerTo && !selectionTouches(view, hit.innerTo, hit.to)) {
                 builder.add(hit.innerTo, hit.to, hideTagDeco);
             }
         }

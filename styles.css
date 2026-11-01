@@ -100,8 +100,7 @@ body.typora-mode-active .markdown-preview-view .markdown-preview-sizer {
    第一部分：隐藏非活跃行的 Markdown 语法符号
    ===================================================== */
 
-body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
-.cm-line:not(.cm-active) .typora-html-tag {
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .typora-html-tag {
     display: none !important;
 }
 
