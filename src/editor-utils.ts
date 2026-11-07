@@ -64,7 +64,15 @@ export function toggleWrap(editor: Editor, open: string, close: string): void {
     }
 }
 
-/** 设置当前行标题级别；已是该级别则取消标题 */
+/** 光标在正文中的偏移；落在标题标记或行首空白上时视为 0 */
+function contentOffset(cursorCh: number, prefixLen: number): number {
+    return Math.max(0, cursorCh - prefixLen);
+}
+
+/**
+ * 设置当前行标题级别；已是该级别则取消标题。
+ * 加上标题后，光标停在 `#` 标记之后（正文里原有位置会保留）。
+ */
 export function toggleHeading(editor: Editor, level: number): void {
     const cursor = editor.getCursor();
     const line = editor.getLine(cursor.line);
@@ -74,15 +82,23 @@ export function toggleHeading(editor: Editor, level: number): void {
     if (headingMatch) {
         const currentLevel = headingMatch[1].length;
         const content = headingMatch[2];
+        const oldPrefixLen = line.length - content.length;
+        const offset = contentOffset(cursor.ch, oldPrefixLen);
         if (currentLevel === level) {
             editor.setLine(cursor.line, content);
-        } else {
-            editor.setLine(cursor.line, prefix + content);
+            editor.setCursor({ line: cursor.line, ch: Math.min(offset, content.length) });
+            return;
         }
-    } else {
-        const content = line.trimStart();
         editor.setLine(cursor.line, prefix + content);
+        editor.setCursor({ line: cursor.line, ch: prefix.length + offset });
+        return;
     }
+
+    const content = line.trimStart();
+    const leading = line.length - content.length;
+    const offset = contentOffset(cursor.ch, leading);
+    editor.setLine(cursor.line, prefix + content);
+    editor.setCursor({ line: cursor.line, ch: prefix.length + offset });
 }
 
 /** 在光标处插入文本 */
