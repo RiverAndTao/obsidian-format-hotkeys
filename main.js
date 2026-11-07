@@ -198,10 +198,10 @@ function selectionAlreadyBoldWrapped(text) {
     return /^\*\*[\s\S]+\*\*$/.test(text) && !text.slice(2, -2).includes("**");
 }
 
-const UNDO_ORIGIN = "format-hotkeys";
+const UNDO_ORIGIN$1 = "format-hotkeys";
 /** 一次替换，进入同一个撤销步 */
 function replaceRangeOnce(editor, replacement, from = editor.getCursor("from"), to = editor.getCursor("to")) {
-    editor.replaceRange(replacement, from, to, UNDO_ORIGIN);
+    editor.replaceRange(replacement, from, to, UNDO_ORIGIN$1);
 }
 const RED_UNDERLINE_OPEN = '<span class="fh-red-underline">';
 const RED_WAVY_OPEN = '<span class="fh-red-wavy">';
@@ -218,7 +218,7 @@ function toggleWrap(editor, open, close) {
     const from = editor.getCursor("from");
     const to = editor.getCursor("to");
     if (from.line !== to.line) {
-        editor.replaceSelection(open + selected + close, UNDO_ORIGIN);
+        editor.replaceSelection(open + selected + close, UNDO_ORIGIN$1);
         if (selected.length > 0) {
             editor.setCursor({ line: to.line, ch: to.ch });
         }
@@ -234,11 +234,11 @@ function toggleWrap(editor, open, close) {
         afterEnd <= line.length &&
         line.substring(beforeStart, from.ch) === open &&
         line.substring(to.ch, afterEnd) === close) {
-        editor.replaceRange(selected, { line: from.line, ch: beforeStart }, { line: to.line, ch: afterEnd }, UNDO_ORIGIN);
+        editor.replaceRange(selected, { line: from.line, ch: beforeStart }, { line: to.line, ch: afterEnd }, UNDO_ORIGIN$1);
         editor.setCursor({ line: from.line, ch: beforeStart + selected.length });
         return;
     }
-    editor.replaceSelection(open + selected + close, UNDO_ORIGIN);
+    editor.replaceSelection(open + selected + close, UNDO_ORIGIN$1);
     if (selected.length > 0) {
         editor.setCursor({ line: to.line, ch: to.ch + open.length });
     }
@@ -2012,9 +2012,9 @@ function applyTableStableStyle(enabled) {
 
 /** 行首 `(1)` / `（1）` 括号编号，课本常用写法 */
 const PAREN_ITEM_RE = /^(\s*)(?:\((\d+)\)|（(\d+)）)/;
-const HEADING_RE = /^#{1,6}\s/;
-const FENCE_RE = /^(\s*)```/;
-const HR_RE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
+const HEADING_RE$1 = /^#{1,6}\s/;
+const FENCE_RE$1 = /^(\s*)```/;
+const HR_RE$1 = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
 const refreshParenListEffect = state.StateEffect.define();
 const itemLineDeco = view.Decoration.line({ class: "typora-paren-list-item" });
 const bodyLineDeco = view.Decoration.line({ class: "typora-paren-list-body" });
@@ -2043,11 +2043,11 @@ function buildDecorations$2(view$1) {
             continue;
         }
         blankRun = 0;
-        if (FENCE_RE.test(text)) {
+        if (FENCE_RE$1.test(text)) {
             inParenBlock = false;
             continue;
         }
-        if (HEADING_RE.test(text) || HR_RE.test(text)) {
+        if (HEADING_RE$1.test(text) || HR_RE$1.test(text)) {
             inParenBlock = false;
             continue;
         }
@@ -2669,6 +2669,677 @@ function attachOutlineMarkdownObserver(_app, root) {
     return observer;
 }
 
+/** 右键复制的三种块引用。 */
+const BLOCK_ID_ONLY_RE = /^\^([A-Za-z0-9-]+)$/;
+const BLOCK_ID_END_RE = /(?:^|\s)\^([A-Za-z0-9-]+)$/;
+const HEADING_RE = /^#{1,6}(?:\s|$)/;
+const LIST_RE = /^(\s*)(?:[-+*]|\d+[.)])\s+/;
+const QUOTE_RE = /^\s*>/;
+const FENCE_RE = /^\s*(```|~~~)/;
+const HR_RE = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
+const MATH_DELIM_RE = /^\s*\$\$\s*$/;
+const ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+function blockIdAtEnd(line) {
+    const trimmed = line.replace(/\s+$/, "");
+    const only = trimmed.match(BLOCK_ID_ONLY_RE);
+    if (only)
+        return only[1];
+    const inline = trimmed.match(BLOCK_ID_END_RE);
+    return inline ? inline[1] : null;
+}
+function isOnlyBlockId(line) {
+    return BLOCK_ID_ONLY_RE.test(line.trim());
+}
+function lineWithBlockId(line, id) {
+    return `${line.replace(/\s+$/, "")} ^${id}`;
+}
+function formatBlockLink(note, blockId, mode, alias = "") {
+    const target = `${escapeWikiPath(note)}#^${blockId}`;
+    if (mode === "embed")
+        return `![[${target}]]`;
+    if (mode === "alias")
+        return `[[${target}|${escapeWikiAlias(alias)}]]`;
+    return `[[${target}]]`;
+}
+function collectBlockIds(lines) {
+    const ids = new Set();
+    for (const line of lines) {
+        const id = blockIdAtEnd(line);
+        if (id)
+            ids.add(id);
+    }
+    return ids;
+}
+function createBlockId(used) {
+    for (let attempt = 0; attempt < 40; attempt++) {
+        let id = ID_ALPHABET[Math.floor(Math.random() * 26)];
+        for (let i = 1; i < 6; i++) {
+            id += ID_ALPHABET[Math.floor(Math.random() * ID_ALPHABET.length)];
+        }
+        if (!used.has(id))
+            return id;
+    }
+    let extra = `b${Date.now().toString(36)}`;
+    while (used.has(extra))
+        extra += "x";
+    return extra;
+}
+function resolveBlock(lines, line, cache) {
+    var _a;
+    if (line < 0 || line >= lines.length)
+        return { ok: false, reason: "empty" };
+    if (inClosedFrontmatter(lines, line))
+        return { ok: false, reason: "yaml" };
+    if (cache && sectionContains(cache, line, (type) => type === "yaml" || type === "frontmatter")) {
+        return { ok: false, reason: "yaml" };
+    }
+    const text = (_a = lines[line]) !== null && _a !== void 0 ? _a : "";
+    // 围栏代码和公式里单独一行的 ^id 是正文，不是块锚点。
+    const insideLiteralBlock = fenceRangeContaining(lines, line) !== null || mathRangeContaining(lines, line) !== null;
+    if (!insideLiteralBlock && isOnlyBlockId(text)) {
+        return {
+            ok: true,
+            target: {
+                kind: "id",
+                start: line,
+                end: line,
+                id: blockIdAtEnd(text),
+                write: null,
+            },
+        };
+    }
+    if (text.trim() === "") {
+        const around = blockAroundBlankLine(lines, line, cache);
+        if (!around)
+            return { ok: false, reason: "empty" };
+        return { ok: true, target: around };
+    }
+    const fromCache = cache ? locateFromCache(lines, line, cache) : null;
+    if (fromCache)
+        return { ok: true, target: fromCache };
+    const manual = locateManual(lines, line);
+    if (!manual)
+        return { ok: false, reason: "empty" };
+    return { ok: true, target: manual };
+}
+function escapeWikiPath(note) {
+    return note.replace(/\|/g, "\\|").replace(/\]/g, "\\]");
+}
+function escapeWikiAlias(alias) {
+    return alias.replace(/\|/g, "\\|").replace(/\]/g, "\\]");
+}
+function contentEndLine(pos) {
+    let end = pos.end.line;
+    if (pos.end.col === 0 && end > pos.start.line)
+        end -= 1;
+    return end;
+}
+function containsLine(pos, line) {
+    const end = contentEndLine(pos);
+    return line >= pos.start.line && line <= Math.max(pos.start.line, end);
+}
+function spanWeight(pos) {
+    const end = Math.max(pos.start.line, contentEndLine(pos));
+    return (end - pos.start.line) * 10000 + Math.max(0, pos.end.col);
+}
+function sectionContains(cache, line, accept) {
+    var _a;
+    return ((_a = cache.sections) !== null && _a !== void 0 ? _a : []).some((section) => accept(section.type) && containsLine(section.position, line));
+}
+function inClosedFrontmatter(lines, line) {
+    var _a;
+    if (((_a = lines[0]) !== null && _a !== void 0 ? _a : "").trim() !== "---")
+        return false;
+    for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim() === "---")
+            return line <= i;
+    }
+    return false;
+}
+function idOnNextLine(lines, end) {
+    const next = lines[end + 1];
+    if (next == null || !isOnlyBlockId(next))
+        return null;
+    return blockIdAtEnd(next);
+}
+function writeFor(kind, start, end) {
+    if (kind === "id")
+        return null;
+    if (kind === "list")
+        return { mode: "inline", line: start };
+    if (kind === "paragraph" || kind === "heading")
+        return { mode: "inline", line: end };
+    return { mode: "after", line: end };
+}
+function finalize(lines, kind, start, end) {
+    var _a;
+    let contentEnd = Math.max(start, end);
+    if (contentEnd > start && isOnlyBlockId((_a = lines[contentEnd]) !== null && _a !== void 0 ? _a : ""))
+        contentEnd -= 1;
+    const id = findExistingId(lines, kind, start, contentEnd);
+    return {
+        kind,
+        start,
+        end: contentEnd,
+        id,
+        write: id ? null : writeFor(kind, start, contentEnd),
+    };
+}
+function findExistingId(lines, kind, start, contentEnd) {
+    var _a, _b, _c, _d;
+    // 围栏和公式内部出现的 ^id 只是正文，块 ID 只能写在块后面单独一行。
+    if (kind === "code" || kind === "math")
+        return idOnNextLine(lines, contentEnd);
+    if (kind === "list") {
+        const marker = ((_a = lines[start]) !== null && _a !== void 0 ? _a : "").match(LIST_RE);
+        const base = marker ? marker[1].length : 0;
+        for (let i = start; i <= contentEnd; i++) {
+            if (i !== start) {
+                const nested = ((_b = lines[i]) !== null && _b !== void 0 ? _b : "").match(LIST_RE);
+                if (nested && nested[1].length > base)
+                    break;
+            }
+            const id = blockIdAtEnd((_c = lines[i]) !== null && _c !== void 0 ? _c : "");
+            if (id)
+                return id;
+        }
+        // 单行列表项允许把 ^id 放在下一行；多行时下一行可能属于子项。
+        if (contentEnd === start)
+            return idOnNextLine(lines, contentEnd);
+        return null;
+    }
+    for (let i = contentEnd; i >= start; i--) {
+        const id = blockIdAtEnd((_d = lines[i]) !== null && _d !== void 0 ? _d : "");
+        if (id)
+            return id;
+    }
+    return idOnNextLine(lines, contentEnd);
+}
+function kindFromSection(type) {
+    switch (type) {
+        case "heading":
+            return "heading";
+        case "list":
+            return "list";
+        case "blockquote":
+        case "callout":
+            return "quote";
+        case "code":
+            return "code";
+        case "math":
+            return "math";
+        case "table":
+            return "table";
+        case "thematicBreak":
+            return "hr";
+        default:
+            return type === "paragraph" ? "paragraph" : "html";
+    }
+}
+function locateFromCache(lines, line, cache) {
+    var _a, _b;
+    const items = ((_a = cache.listItems) !== null && _a !== void 0 ? _a : []).filter((item) => containsLine(item.position, line));
+    if (items.length > 0) {
+        items.sort((a, b) => spanWeight(a.position) - spanWeight(b.position));
+        const item = items[0];
+        const start = item.position.start.line;
+        const end = Math.max(start, contentEndLine(item.position));
+        return finalize(lines, "list", start, end);
+    }
+    const sections = ((_b = cache.sections) !== null && _b !== void 0 ? _b : []).filter((section) => section.type !== "yaml" &&
+        section.type !== "frontmatter" &&
+        containsLine(section.position, line));
+    if (sections.length === 0)
+        return null;
+    sections.sort((a, b) => spanWeight(a.position) - spanWeight(b.position));
+    const section = sections[0];
+    const start = section.position.start.line;
+    const end = Math.max(start, contentEndLine(section.position));
+    return finalize(lines, kindFromSection(section.type), start, end);
+}
+function blockAroundBlankLine(lines, line, cache) {
+    const fence = fenceRangeContaining(lines, line);
+    if (fence)
+        return finalize(lines, "code", fence.start, fence.end);
+    const math = mathRangeContaining(lines, line);
+    if (math)
+        return finalize(lines, "math", math.start, math.end);
+    if (!cache)
+        return null;
+    const fromCache = locateFromCache(lines, line, cache);
+    if (!fromCache || fromCache.kind === "paragraph" || fromCache.kind === "heading")
+        return null;
+    return fromCache;
+}
+function fenceRanges(lines) {
+    const ranges = [];
+    let open = -1;
+    let marker = "";
+    for (let i = 0; i < lines.length; i++) {
+        const match = lines[i].match(FENCE_RE);
+        if (!match)
+            continue;
+        if (open < 0) {
+            open = i;
+            marker = match[1];
+            continue;
+        }
+        if (match[1] === marker) {
+            ranges.push({ start: open, end: i });
+            open = -1;
+            marker = "";
+        }
+    }
+    if (open >= 0)
+        ranges.push({ start: open, end: lines.length - 1 });
+    return ranges;
+}
+function fenceRangeContaining(lines, line) {
+    var _a;
+    return (_a = fenceRanges(lines).find((range) => line >= range.start && line <= range.end)) !== null && _a !== void 0 ? _a : null;
+}
+function inFence(lines, line) {
+    return fenceRangeContaining(lines, line) !== null;
+}
+function mathRanges(lines) {
+    const ranges = [];
+    let open = -1;
+    for (let i = 0; i < lines.length; i++) {
+        if (inFence(lines, i) || !MATH_DELIM_RE.test(lines[i]))
+            continue;
+        if (open < 0) {
+            open = i;
+            continue;
+        }
+        ranges.push({ start: open, end: i });
+        open = -1;
+    }
+    if (open >= 0)
+        ranges.push({ start: open, end: lines.length - 1 });
+    return ranges;
+}
+function mathRangeContaining(lines, line) {
+    var _a;
+    return (_a = mathRanges(lines).find((range) => line >= range.start && line <= range.end)) !== null && _a !== void 0 ? _a : null;
+}
+function isSingleLineMath(line) {
+    const trimmed = line.trim();
+    return trimmed.startsWith("$$") && trimmed.endsWith("$$") && !MATH_DELIM_RE.test(line) && trimmed.length > 4;
+}
+function isTableLine(line) {
+    var _a, _b;
+    const trimmed = line.trim();
+    if (!trimmed.includes("|"))
+        return false;
+    if (/^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmed))
+        return true;
+    const pipes = (_b = (_a = trimmed.match(/\|/g)) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0;
+    return trimmed.startsWith("|") && trimmed.endsWith("|") && pipes >= 2;
+}
+function leadingSpaces(line) {
+    var _a, _b;
+    return (_b = (_a = line.match(/^\s*/)) === null || _a === void 0 ? void 0 : _a[0].length) !== null && _b !== void 0 ? _b : 0;
+}
+function isPlainLine(line) {
+    if (line.trim() === "" || isOnlyBlockId(line))
+        return false;
+    if (HEADING_RE.test(line.trim()))
+        return false;
+    if (LIST_RE.test(line) || QUOTE_RE.test(line) || FENCE_RE.test(line))
+        return false;
+    if (HR_RE.test(line) || isTableLine(line) || MATH_DELIM_RE.test(line))
+        return false;
+    if (isSingleLineMath(line))
+        return false;
+    return true;
+}
+function listItemRange(lines, line) {
+    var _a, _b, _c, _d, _e, _f;
+    let start = line;
+    if (!LIST_RE.test((_a = lines[line]) !== null && _a !== void 0 ? _a : "")) {
+        const indent = leadingSpaces((_b = lines[line]) !== null && _b !== void 0 ? _b : "");
+        for (let i = line - 1; i >= 0; i--) {
+            if (((_c = lines[i]) !== null && _c !== void 0 ? _c : "").trim() === "")
+                break;
+            const marker = ((_d = lines[i]) !== null && _d !== void 0 ? _d : "").match(LIST_RE);
+            if (marker && marker[1].length < indent) {
+                start = i;
+                break;
+            }
+        }
+    }
+    const marker = ((_e = lines[start]) !== null && _e !== void 0 ? _e : "").match(LIST_RE);
+    const base = marker ? marker[1].length : 0;
+    let end = start;
+    for (let i = start + 1; i < lines.length; i++) {
+        const current = (_f = lines[i]) !== null && _f !== void 0 ? _f : "";
+        if (current.trim() === "")
+            break;
+        const next = current.match(LIST_RE);
+        if (next && next[1].length <= base)
+            break;
+        if (!next && leadingSpaces(current) <= base)
+            break;
+        end = i;
+    }
+    return { start, end };
+}
+function isListContext(lines, line) {
+    var _a, _b, _c, _d, _e;
+    if (LIST_RE.test((_a = lines[line]) !== null && _a !== void 0 ? _a : ""))
+        return true;
+    if (((_b = lines[line]) !== null && _b !== void 0 ? _b : "").trim() === "" || leadingSpaces((_c = lines[line]) !== null && _c !== void 0 ? _c : "") === 0)
+        return false;
+    const indent = leadingSpaces((_d = lines[line]) !== null && _d !== void 0 ? _d : "");
+    for (let i = line - 1; i >= 0; i--) {
+        const current = (_e = lines[i]) !== null && _e !== void 0 ? _e : "";
+        if (current.trim() === "")
+            return false;
+        const marker = current.match(LIST_RE);
+        if (marker && marker[1].length < indent)
+            return true;
+        if (!marker && leadingSpaces(current) === 0)
+            return false;
+    }
+    return false;
+}
+function expandWhile(lines, line, accept) {
+    let start = line;
+    let end = line;
+    while (start > 0 && accept(start - 1))
+        start--;
+    while (end + 1 < lines.length && accept(end + 1))
+        end++;
+    return { start, end };
+}
+function locateManual(lines, line) {
+    var _a;
+    const text = (_a = lines[line]) !== null && _a !== void 0 ? _a : "";
+    if (text.trim() === "")
+        return null;
+    const fence = fenceRangeContaining(lines, line);
+    if (fence)
+        return finalize(lines, "code", fence.start, fence.end);
+    if (isSingleLineMath(text))
+        return finalize(lines, "math", line, line);
+    const math = mathRangeContaining(lines, line);
+    if (math)
+        return finalize(lines, "math", math.start, math.end);
+    if (isTableLine(text)) {
+        const range = expandWhile(lines, line, (index) => { var _a; return isTableLine((_a = lines[index]) !== null && _a !== void 0 ? _a : ""); });
+        return finalize(lines, "table", range.start, range.end);
+    }
+    if (HEADING_RE.test(text.trim()))
+        return finalize(lines, "heading", line, line);
+    if (HR_RE.test(text))
+        return finalize(lines, "hr", line, line);
+    if (QUOTE_RE.test(text)) {
+        const range = expandWhile(lines, line, (index) => { var _a; return QUOTE_RE.test((_a = lines[index]) !== null && _a !== void 0 ? _a : ""); });
+        return finalize(lines, "quote", range.start, range.end);
+    }
+    if (isListContext(lines, line)) {
+        const range = listItemRange(lines, line);
+        return finalize(lines, "list", range.start, range.end);
+    }
+    const range = expandWhile(lines, line, (index) => { var _a; return isPlainLine((_a = lines[index]) !== null && _a !== void 0 ? _a : ""); });
+    return finalize(lines, "paragraph", range.start, range.end);
+}
+
+const UNDO_ORIGIN = "format-hotkeys";
+const MENU_ITEMS = [
+    { mode: "link", title: "复制块链接", icon: "link" },
+    { mode: "embed", title: "复制嵌入链接", icon: "links-coming-in" },
+    { mode: "alias", title: "复制别名链接", icon: "pencil" },
+];
+/** 编辑器右键：复制跳转链接、嵌入链接、别名链接。 */
+function addBlockLinkMenuItems(menu, app, editor, file) {
+    menu.addSeparator();
+    for (const entry of MENU_ITEMS) {
+        menu.addItem((item) => {
+            item.setTitle(entry.title);
+            item.setIcon(entry.icon);
+            item.onClick(() => {
+                void copyBlockReference(app, editor, file, entry.mode);
+            });
+        });
+    }
+}
+function copyBlockReference(app, editor, file, mode) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const line = anchorLine(editor);
+        const initial = readTarget(app, editor, file, line);
+        if (!initial.ok) {
+            new ObsidianApi.Notice(initial.reason === "yaml" ? "属性区不能复制块链接" : "请把光标放在要引用的段落上");
+            return;
+        }
+        let alias = "";
+        if (mode === "alias") {
+            const typed = yield new BlockAliasModal(app, suggestAlias(editor), blockSnippet(editor, initial.target)).openAndGetValue();
+            if (typed == null)
+                return;
+            alias = typed;
+        }
+        const current = readTarget(app, editor, file, line);
+        if (!current.ok) {
+            new ObsidianApi.Notice(current.reason === "yaml" ? "属性区不能复制块链接" : "请把光标放在要引用的段落上");
+            return;
+        }
+        const lines = readLines(editor);
+        const id = ensureBlockId(editor, current.target, collectBlockIds(lines));
+        if (!id) {
+            new ObsidianApi.Notice("这一段无法添加块链接");
+            return;
+        }
+        const note = noteLinktext(app, file);
+        const text = formatBlockLink(note, id, mode, alias);
+        const copied = yield copyText(text);
+        if (!copied) {
+            new ObsidianApi.Notice("复制失败");
+            return;
+        }
+        const label = mode === "embed" ? "已复制嵌入链接" : mode === "alias" ? "已复制别名链接" : "已复制块链接";
+        new ObsidianApi.Notice(`${label}：${text}`);
+    });
+}
+function readTarget(app, editor, file, line) {
+    const cache = app.metadataCache.getFileCache(file);
+    return resolveBlock(readLines(editor), line, cache);
+}
+function anchorLine(editor) {
+    var _a, _b;
+    const cursor = editor.getCursor();
+    if (((_a = editor.getLine(cursor.line)) !== null && _a !== void 0 ? _a : "").trim() !== "")
+        return cursor.line;
+    const from = editor.getCursor("from");
+    if (from.line !== cursor.line && ((_b = editor.getLine(from.line)) !== null && _b !== void 0 ? _b : "").trim() !== "")
+        return from.line;
+    return cursor.line;
+}
+function readLines(editor) {
+    const lines = [];
+    const count = editor.lineCount();
+    for (let i = 0; i < count; i++)
+        lines.push(editor.getLine(i));
+    return lines;
+}
+function noteLinktext(app, file) {
+    try {
+        const text = app.metadataCache.fileToLinktext(file, "", true);
+        if (text)
+            return text;
+    }
+    catch (_a) {
+        // 退回文件名
+    }
+    return file.basename;
+}
+function ensureBlockId(editor, target, used) {
+    if (target.id)
+        return target.id;
+    if (!target.write)
+        return null;
+    const id = createBlockId(used);
+    const cursor = editor.getCursor();
+    const { mode, line } = target.write;
+    if (line < 0 || line > editor.lastLine())
+        return null;
+    const current = editor.getLine(line);
+    if (mode === "inline") {
+        const existing = blockIdAtEnd(current);
+        if (existing)
+            return existing;
+        editor.replaceRange(lineWithBlockId(current, id), { line, ch: 0 }, { line, ch: current.length }, UNDO_ORIGIN);
+    }
+    else {
+        const following = line < editor.lastLine() ? editor.getLine(line + 1) : "";
+        if (isOnlyBlockId(following)) {
+            const existing = blockIdAtEnd(following);
+            if (existing)
+                return existing;
+        }
+        editor.replaceRange(`\n^${id}`, { line, ch: current.length }, undefined, UNDO_ORIGIN);
+    }
+    const restoredLine = Math.min(cursor.line, editor.lastLine());
+    const restoredCh = Math.min(cursor.ch, editor.getLine(restoredLine).length);
+    editor.setCursor({ line: restoredLine, ch: restoredCh });
+    return id;
+}
+function suggestAlias(editor) {
+    const selected = editor
+        .getSelection()
+        .replace(/\s+\^[A-Za-z0-9-]+\s*$/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (!selected || selected.length > 40)
+        return "";
+    return selected;
+}
+function blockSnippet(editor, target) {
+    const parts = [];
+    for (let i = target.start; i <= target.end && i < editor.lineCount(); i++) {
+        let line = editor.getLine(i).replace(/\s+\^[A-Za-z0-9-]+\s*$/, "");
+        line = line.replace(/^\s*>\s?/, "");
+        line = line.replace(/^#{1,6}\s+/, "");
+        line = line.replace(/^(\s*)(?:[-+*]|\d+[.)])\s+/, "");
+        line = line.replace(/^\[[ xX]\]\s+/, "");
+        const trimmed = line.trim();
+        if (trimmed && !isOnlyBlockId(trimmed))
+            parts.push(trimmed);
+    }
+    const text = parts.join(" ").replace(/\s+/g, " ");
+    if (text.length <= 80)
+        return text;
+    return `${text.slice(0, 80)}…`;
+}
+function copyText(text) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            yield navigator.clipboard.writeText(text);
+            return true;
+        }
+        catch (_a) {
+            try {
+                const area = document.createElement("textarea");
+                area.value = text;
+                area.setAttr("readonly", "");
+                area.style.position = "fixed";
+                area.style.left = "-9999px";
+                document.body.append(area);
+                area.select();
+                const ok = document.execCommand("copy");
+                area.remove();
+                return ok;
+            }
+            catch (_b) {
+                return false;
+            }
+        }
+    });
+}
+class BlockAliasModal extends ObsidianApi.Modal {
+    constructor(app, initial, preview) {
+        super(app);
+        this.initial = initial;
+        this.preview = preview;
+        this.settled = false;
+        this.resolve = () => undefined;
+    }
+    openAndGetValue() {
+        return new Promise((resolve) => {
+            this.resolve = resolve;
+            this.open();
+        });
+    }
+    onOpen() {
+        const { contentEl, titleEl } = this;
+        titleEl.setText("别名链接");
+        contentEl.createEl("p", {
+            cls: "format-hotkeys-block-alias-desc",
+            text: "链接显示成这段文字，点击后仍跳到原段落并高亮。",
+        });
+        if (this.preview) {
+            contentEl.createEl("p", {
+                cls: "format-hotkeys-block-alias-preview",
+                text: this.preview,
+            });
+        }
+        const input = contentEl.createEl("input", {
+            type: "text",
+            cls: "format-hotkeys-lang-input",
+            value: this.initial,
+        });
+        input.placeholder = "例如：内模式定义";
+        const error = contentEl.createEl("p", {
+            cls: "format-hotkeys-block-alias-error",
+            text: "",
+        });
+        const confirm = () => {
+            const value = input.value.trim();
+            if (!value) {
+                error.setText("请输入要显示的文字");
+                input.focus();
+                return;
+            }
+            this.closeWith(value);
+        };
+        const row = contentEl.createDiv({ cls: "format-hotkeys-lang-actions" });
+        row.createEl("button", { text: "复制", cls: "mod-cta" }).addEventListener("click", confirm);
+        row.createEl("button", { text: "取消" }).addEventListener("click", () => this.closeWith(null));
+        input.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                confirm();
+            }
+            else if (event.key === "Escape") {
+                event.preventDefault();
+                this.closeWith(null);
+            }
+            else if (error.textContent) {
+                error.setText("");
+            }
+        });
+        window.setTimeout(() => {
+            input.focus();
+            if (this.initial)
+                input.select();
+        }, 0);
+    }
+    closeWith(value) {
+        if (this.settled)
+            return;
+        this.settled = true;
+        this.resolve(value);
+        this.close();
+    }
+    onClose() {
+        if (!this.settled) {
+            this.settled = true;
+            this.resolve(null);
+        }
+        this.contentEl.empty();
+    }
+}
+
 const RED_OPEN = '<font color="#ff0000">';
 const RED_CLOSE = "</font>";
 /**
@@ -2792,6 +3463,33 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 editorCallback: (editor) => convertHtmlTableToMarkdown(editor),
             });
             this.addCommand({
+                id: "copy-block-link",
+                name: "复制块链接",
+                editorCallback: (editor, view) => {
+                    if (!view.file)
+                        return;
+                    void copyBlockReference(this.app, editor, view.file, "link");
+                },
+            });
+            this.addCommand({
+                id: "copy-block-embed",
+                name: "复制嵌入链接",
+                editorCallback: (editor, view) => {
+                    if (!view.file)
+                        return;
+                    void copyBlockReference(this.app, editor, view.file, "embed");
+                },
+            });
+            this.addCommand({
+                id: "copy-block-alias-link",
+                name: "复制别名链接",
+                editorCallback: (editor, view) => {
+                    if (!view.file)
+                        return;
+                    void copyBlockReference(this.app, editor, view.file, "alias");
+                },
+            });
+            this.addCommand({
                 id: "open-typora-config",
                 name: "打开 Typora 配置",
                 callback: () => new TyporaConfigModal(this.app, this).open(),
@@ -2807,6 +3505,11 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             this.dbPath = `${this.manifest.dir}/cursor-positions.json`;
             yield this.loadDb();
             this.registerEvent(this.app.workspace.on("file-open", (file) => this.restoreState(file)));
+            this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
+                if (!view.file)
+                    return;
+                addBlockLinkMenuItems(menu, this.app, editor, view.file);
+            }));
             this.registerEvent(this.app.workspace.on("quit", () => this.writeDb()));
             // 文件重命名/删除时同步迁移或清理位置记录
             this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {

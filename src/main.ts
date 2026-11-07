@@ -37,6 +37,7 @@ import {
     restoreOutlineMarkdown,
     scheduleOutlineMarkdownRefresh,
 } from "./outline-markdown";
+import { addBlockLinkMenuItems, copyBlockReference } from "./block-link";
 
 const RED_OPEN = '<font color="#ff0000">';
 const RED_CLOSE = "</font>";
@@ -183,6 +184,33 @@ export default class FormatHotkeysPlugin extends Plugin {
         });
 
         this.addCommand({
+            id: "copy-block-link",
+            name: "复制块链接",
+            editorCallback: (editor, view) => {
+                if (!view.file) return;
+                void copyBlockReference(this.app, editor, view.file, "link");
+            },
+        });
+
+        this.addCommand({
+            id: "copy-block-embed",
+            name: "复制嵌入链接",
+            editorCallback: (editor, view) => {
+                if (!view.file) return;
+                void copyBlockReference(this.app, editor, view.file, "embed");
+            },
+        });
+
+        this.addCommand({
+            id: "copy-block-alias-link",
+            name: "复制别名链接",
+            editorCallback: (editor, view) => {
+                if (!view.file) return;
+                void copyBlockReference(this.app, editor, view.file, "alias");
+            },
+        });
+
+        this.addCommand({
             id: "open-typora-config",
             name: "打开 Typora 配置",
             callback: () => new TyporaConfigModal(this.app, this).open(),
@@ -203,6 +231,12 @@ export default class FormatHotkeysPlugin extends Plugin {
         await this.loadDb();
 
         this.registerEvent(this.app.workspace.on("file-open", (file) => this.restoreState(file)));
+        this.registerEvent(
+            this.app.workspace.on("editor-menu", (menu, editor, view) => {
+                if (!view.file) return;
+                addBlockLinkMenuItems(menu, this.app, editor, view.file);
+            })
+        );
         this.registerEvent(
             (this.app.workspace as unknown as { on: (e: "quit", cb: () => void) => EventRef }).on("quit", () => this.writeDb())
         );

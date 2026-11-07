@@ -1152,6 +1152,24 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-footref {
     justify-content: flex-end;
 }
 
+.format-hotkeys-block-alias-desc {
+    margin: 0 0 0.4em;
+}
+
+.format-hotkeys-block-alias-preview {
+    margin: 0 0 0.75em;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    line-height: 1.5;
+}
+
+.format-hotkeys-block-alias-error {
+    min-height: 1.2em;
+    margin: -0.4em 0 0.8em;
+    color: var(--text-error);
+    font-size: var(--font-ui-small);
+}
+
 .format-hotkeys-typora-intro {
     margin-bottom: 0.8em;
 }
