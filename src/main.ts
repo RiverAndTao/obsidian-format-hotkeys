@@ -143,6 +143,7 @@ export default class FormatHotkeysPlugin extends Plugin {
             id: "insert-dunhao",
             name: "插入顿号",
             editorCallback: (editor: Editor) => insertTextAtCursor(editor, "、"),
+            hotkeys: [{ modifiers: ["Alt"], key: "`" }],
         });
 
         this.addCommand({

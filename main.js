@@ -2747,6 +2747,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 id: "insert-dunhao",
                 name: "插入顿号",
                 editorCallback: (editor) => insertTextAtCursor(editor, "、"),
+                hotkeys: [{ modifiers: ["Alt"], key: "`" }],
             });
             this.addCommand({
                 id: "block-math-to-inline",
