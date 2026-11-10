@@ -717,7 +717,7 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-end {
     border-radius: 0 0 3px 3px;
 }
 
-/* Typora GitHub / Night：代码块 token 色（含 arm/asm 装饰） */
+/* Typora GitHub / Night：代码块 token 色（含 arm/asm、sql 装饰） */
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-keyword,
 body.typora-mode-active .markdown-rendered pre code .token.keyword {
     color: var(--typora-cm-keyword);

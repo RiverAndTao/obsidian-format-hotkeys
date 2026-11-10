@@ -26,6 +26,7 @@ import { applyTableStableStyle } from "./table-stable";
 import { applyTyporaStyleVars, clearTyporaStyleVars, mergeTyporaStyle } from "./typora-style";
 import { createParenListExtension, refreshParenListDecorations } from "./typora-paren-list";
 import { createAsmHighlightExtension, refreshAsmHighlight, registerAsmPrismLanguages } from "./asm-highlight";
+import { createSqlHighlightExtension, refreshSqlHighlight, registerSqlPrismLanguages } from "./sql-highlight";
 import { createHtmlStyleExtension, refreshHtmlStyleDecorations } from "./typora-html-style";
 import {
     attachTableStripeObserver,
@@ -220,8 +221,9 @@ export default class FormatHotkeysPlugin extends Plugin {
 
         this.registerEditorExtension(createParenListExtension());
         this.registerEditorExtension(createAsmHighlightExtension());
+        this.registerEditorExtension(createSqlHighlightExtension());
         this.registerEditorExtension(createHtmlStyleExtension());
-        void this.registerPrismAsmLanguages();
+        void this.registerPrismExtraLanguages();
 
         this.toolbarManager = new EditorToolbarManager(this);
         this.toolbarManager.attach();
@@ -295,6 +297,7 @@ export default class FormatHotkeysPlugin extends Plugin {
         bodyEl.toggleClass("typora-hide-syntax", this.settings.typoraMode && this.settings.typora.hideSyntax);
         refreshParenListDecorations(this.app);
         refreshAsmHighlight(this.app);
+        refreshSqlHighlight(this.app);
         refreshHtmlStyleDecorations(this.app);
         scheduleTableStripeRefresh(this.app);
     }
@@ -455,7 +458,7 @@ export default class FormatHotkeysPlugin extends Plugin {
         });
     }
 
-    private async registerPrismAsmLanguages(): Promise<void> {
+    private async registerPrismExtraLanguages(): Promise<void> {
         try {
             const api = ObsidianApi as unknown as {
                 loadPrism?: () => Promise<{ languages: Record<string, unknown> }>;
@@ -466,6 +469,7 @@ export default class FormatHotkeysPlugin extends Plugin {
                     : (window as unknown as { Prism?: { languages: Record<string, unknown> } }).Prism;
             if (prism?.languages) {
                 registerAsmPrismLanguages(prism);
+                registerSqlPrismLanguages(prism);
             }
         } catch {
             // Prism 不可用时源码视图仍由 CodeMirror 装饰高亮

@@ -35,7 +35,7 @@ export interface FormatHotkeysSettings {
 
 export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
     defaultCodeLanguage: "",
-    codeLanguages: ["java", "python", "javascript", "typescript", "bash", ""],
+    codeLanguages: ["java", "python", "javascript", "typescript", "bash", "sql", ""],
     toolbarButtonOrder: [
         "typora-mode",
         "typora-config",
