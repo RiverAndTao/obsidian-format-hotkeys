@@ -155,8 +155,7 @@ body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .cm-lin
     .cm-formatting.cm-formatting-strikethrough,
     /* 行内代码 ` */
     .cm-formatting.cm-formatting-code.cm-inline-code,
-    /* 代码块 ``` */
-    .cm-formatting.cm-formatting-code-block,
+    /* 代码块 ``` 不用 display:none，否则围栏行高度会随选中跳动；见下方 visibility 处理 */
     /* 高亮 == */
     .cm-formatting.cm-formatting-highlight,
     /* 块引用 > */
@@ -720,16 +719,33 @@ body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) pre code
 }
 
 /*
- * 围栏行（```）始终与内容行同字号/行高，避免选中时放大缩小。
- * hide-syntax 隐藏标记后仍用 min-height 占位，尺寸不跳。
+ * 围栏行（```c / ```）高度必须恒定：
+ * hide-syntax 时若用 display:none，未选中行会塌缩、选中又撑开 → 整块代码大小乱跳。
+ * 改用 visibility:hidden 隐藏 ```/语言，布局占位仍在，选中只是「显字」不改高度。
  */
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin,
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-end {
     font-size: 0.9em !important;
     line-height: 1.45 !important;
-    min-height: calc(0.9em * 1.45);
+    min-height: calc(0.9em * 1.45 + 2 * var(--typora-line-padding, 0.15em));
     opacity: 1 !important;
     color: var(--text-muted);
+    box-sizing: border-box;
+}
+
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
+.cm-line:not(.cm-active).HyperMD-codeblock-begin,
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
+.cm-line:not(.cm-active).HyperMD-codeblock-end {
+    /* 行本身保持高度；内容不可见但不参与「消失」 */
+    color: transparent !important;
+}
+
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
+.cm-line:not(.cm-active).HyperMD-codeblock-begin *,
+body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
+.cm-line:not(.cm-active).HyperMD-codeblock-end * {
+    visibility: hidden !important;
 }
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin {
