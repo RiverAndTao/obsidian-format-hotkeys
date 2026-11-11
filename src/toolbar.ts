@@ -28,6 +28,21 @@ import { TyporaConfigModal } from "./typora-config-modal";
 
 const TOOLBAR_CLASS = "format-hotkeys-toolbar";
 
+/** 纯编辑器动作（无额外菜单） */
+const EDITOR_ACTIONS: Partial<Record<ToolbarButtonId, (editor: Editor) => void>> = {
+    bold: toggleBold,
+    "flatten-to-bold": flattenSelectionToBold,
+    "remove-red": removeRedInSelection,
+    "red-underline": toggleRedUnderline,
+    "red-wavy": toggleRedWavy,
+    "remove-blank-lines": removeBlankLinesInSelection,
+    "block-math-to-inline": convertBlockMathToInline,
+    "block-math-to-inline-join": convertBlockMathToInlineAndJoin,
+    "normalize-punctuation": normalizePunctuation,
+    "remove-callout": removeCallout,
+    "table-to-md": convertHtmlTableToMarkdown,
+};
+
 export class EditorToolbarManager {
     private toolbarEl: HTMLElement | null = null;
     private attachedView: MarkdownView | null = null;
@@ -94,72 +109,23 @@ export class EditorToolbarManager {
     private renderButton(view: MarkdownView, buttonId: ToolbarButtonId): void {
         switch (buttonId) {
             case "typora-mode":
-                this.addTyporaModeButton(view);
-                break;
+                this.addTyporaModeButton();
+                return;
             case "typora-config":
                 this.addTyporaConfigButton();
-                break;
-            case "bold":
-                this.addActionButton(view, TOOLBAR_BUTTON_LABELS.bold, (editor) => toggleBold(editor));
-                break;
-            case "flatten-to-bold":
-                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["flatten-to-bold"], (editor) =>
-                    flattenSelectionToBold(editor)
-                );
-                break;
-            case "remove-red":
-                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["remove-red"], (editor) =>
-                    removeRedInSelection(editor)
-                );
-                break;
-            case "red-underline":
-                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["red-underline"], (editor) =>
-                    toggleRedUnderline(editor)
-                );
-                break;
-            case "red-wavy":
-                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["red-wavy"], (editor) =>
-                    toggleRedWavy(editor)
-                );
-                break;
-            case "remove-blank-lines":
-                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["remove-blank-lines"], (editor) =>
-                    removeBlankLinesInSelection(editor)
-                );
-                break;
+                return;
             case "code-language":
                 this.addLanguageButton(view);
-                break;
-            case "block-math-to-inline":
-                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["block-math-to-inline"], (editor) =>
-                    convertBlockMathToInline(editor)
-                );
-                break;
-            case "block-math-to-inline-join":
-                this.addActionButton(
-                    view,
-                    TOOLBAR_BUTTON_LABELS["block-math-to-inline-join"],
-                    (editor) => convertBlockMathToInlineAndJoin(editor)
-                );
-                break;
-            case "normalize-punctuation":
-                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["normalize-punctuation"], (editor) =>
-                    normalizePunctuation(editor)
-                );
-                break;
+                return;
             case "callout":
                 this.addCalloutButton(view);
-                break;
-            case "remove-callout":
-                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["remove-callout"], (editor) =>
-                    removeCallout(editor)
-                );
-                break;
-            case "table-to-md":
-                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["table-to-md"], (editor) =>
-                    convertHtmlTableToMarkdown(editor)
-                );
-                break;
+                return;
+            default: {
+                const action = EDITOR_ACTIONS[buttonId];
+                if (action) {
+                    this.addActionButton(view, TOOLBAR_BUTTON_LABELS[buttonId], action);
+                }
+            }
         }
     }
 
@@ -167,50 +133,21 @@ export class EditorToolbarManager {
         switch (buttonId) {
             case "typora-mode":
                 void this.toggleTyporaMode();
-                break;
+                return;
             case "typora-config":
                 new TyporaConfigModal(this.plugin.app, this.plugin).open();
-                break;
-            case "bold":
-                toggleBold(view.editor);
-                break;
-            case "flatten-to-bold":
-                flattenSelectionToBold(view.editor);
-                break;
-            case "remove-red":
-                removeRedInSelection(view.editor);
-                break;
-            case "red-underline":
-                toggleRedUnderline(view.editor);
-                break;
-            case "red-wavy":
-                toggleRedWavy(view.editor);
-                break;
-            case "remove-blank-lines":
-                removeBlankLinesInSelection(view.editor);
-                break;
+                return;
             case "code-language":
                 if (anchor) this.showLanguageMenu(anchor);
-                break;
-            case "block-math-to-inline":
-                convertBlockMathToInline(view.editor);
-                break;
-            case "block-math-to-inline-join":
-                convertBlockMathToInlineAndJoin(view.editor);
-                break;
-            case "normalize-punctuation":
-                normalizePunctuation(view.editor);
-                break;
+                return;
             case "callout":
                 if (anchor) this.showCalloutMenu(anchor, view);
                 else wrapCallout(view.editor, "tip");
-                break;
-            case "remove-callout":
-                removeCallout(view.editor);
-                break;
-            case "table-to-md":
-                convertHtmlTableToMarkdown(view.editor);
-                break;
+                return;
+            default: {
+                const action = EDITOR_ACTIONS[buttonId];
+                if (action) action(view.editor);
+            }
         }
     }
 
@@ -221,7 +158,7 @@ export class EditorToolbarManager {
         this.refresh();
     }
 
-    private addTyporaModeButton(_view: MarkdownView): void {
+    private addTyporaModeButton(): void {
         if (!this.toolbarEl) return;
 
         const isActive = this.plugin.settings.typoraMode;

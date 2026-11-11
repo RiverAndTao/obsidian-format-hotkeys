@@ -7,3 +7,5 @@ Thumbs.db
 obsidian-vault.config.json
 test/
 *.js.map
+tmp-*.png
+图片LoRA训练指南.md

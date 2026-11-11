@@ -615,13 +615,8 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .external-link {
 }
 
 /* =====================================================
-   第七部分：块引用（只装饰整行，不把行内 span 变成 block）
-   对齐 Typora：左边框 + 浅底 + 斜体，嵌套逐级加深边框
-
-   黄细线来源：Prime 等主题把
-     --blockquote-border-color: var(--color-orange)
-   Obsidian 核心用该变量画引用竖线；本插件再画一条 border-left，
-   就会叠出「紫粗线 + 橙黄细线」。这里统一接管变量并清掉第二层。
+   第七部分：块引用
+   覆盖主题 --blockquote-border-color（如 Prime 的 orange），避免叠出黄细线
    ===================================================== */
 
 body.typora-mode-active {
@@ -634,7 +629,6 @@ body.typora-mode-active {
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote {
     color: var(--typora-quote-color);
     border-left: 0.25em solid var(--typora-quote-border) !important;
-    border-inline-start: 0.25em solid var(--typora-quote-border) !important;
     background-color: var(--typora-quote-bg);
     box-shadow: none !important;
     outline: none !important;
@@ -649,7 +643,6 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote {
     border-radius: 0 4px 4px 0;
 }
 
-/* 主题/核心若用伪元素再画一条竖线，直接去掉 */
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote::before,
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote::after {
     border: none !important;
@@ -690,7 +683,6 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote :is
 body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) blockquote {
     color: var(--typora-quote-color);
     border-left: 0.25em solid var(--typora-quote-border) !important;
-    border-inline-start: 0.25em solid var(--typora-quote-border) !important;
     background-color: var(--typora-quote-bg);
     box-shadow: none !important;
     padding: 0.55em 1em;
@@ -752,11 +744,7 @@ body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) pre code
     box-shadow: none !important;
 }
 
-/*
- * 围栏行（```c / ```）高度必须恒定：
- * hide-syntax 时若用 display:none，未选中行会塌缩、选中又撑开 → 整块代码大小乱跳。
- * 改用 visibility:hidden 隐藏 ```/语言，布局占位仍在，选中只是「显字」不改高度。
- */
+/* 围栏行高度恒定：用 visibility 藏 ```，避免 display:none 导致选中时高度跳动 */
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin,
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-end {
     font-size: 0.9em !important;
