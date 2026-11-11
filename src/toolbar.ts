@@ -1,8 +1,28 @@
 import { Editor, MarkdownView, Menu } from "obsidian";
 import type FormatHotkeysPlugin from "./main";
-import { insertTextAtCursor, removeBlankLinesInSelection, convertBlockMathToInline, convertBlockMathToInlineAndJoin, normalizePunctuation, wrapCallout, removeCallout, convertHtmlTableToMarkdown, CALLOUT_OPTIONS, CalloutType, toggleBold, flattenSelectionToBold, removeRedInSelection, toggleRedUnderline, toggleRedWavy } from "./editor-utils";
+import {
+    removeBlankLinesInSelection,
+    convertBlockMathToInline,
+    convertBlockMathToInlineAndJoin,
+    normalizePunctuation,
+    wrapCallout,
+    removeCallout,
+    convertHtmlTableToMarkdown,
+    CALLOUT_OPTIONS,
+    CalloutType,
+    toggleBold,
+    flattenSelectionToBold,
+    removeRedInSelection,
+    toggleRedUnderline,
+    toggleRedWavy,
+} from "./editor-utils";
 import { LanguageInputModal } from "./language-input-modal";
-import { formatLanguageLabel, ToolbarButtonId } from "./settings";
+import {
+    ALL_TOOLBAR_BUTTONS,
+    formatLanguageLabel,
+    TOOLBAR_BUTTON_LABELS,
+    ToolbarButtonId,
+} from "./settings";
 import { ToolbarOrderModal } from "./toolbar-order-modal";
 import { TyporaConfigModal } from "./typora-config-modal";
 
@@ -66,6 +86,11 @@ export class EditorToolbarManager {
         this.renderMoreButton(view);
     }
 
+    private overflowButtonIds(): ToolbarButtonId[] {
+        const visible = new Set(this.plugin.settings.toolbarButtonOrder);
+        return ALL_TOOLBAR_BUTTONS.filter((id) => !visible.has(id));
+    }
+
     private renderButton(view: MarkdownView, buttonId: ToolbarButtonId): void {
         switch (buttonId) {
             case "typora-mode":
@@ -75,48 +100,125 @@ export class EditorToolbarManager {
                 this.addTyporaConfigButton();
                 break;
             case "bold":
-                this.addActionButton(view, "加粗", (editor) => toggleBold(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS.bold, (editor) => toggleBold(editor));
                 break;
             case "flatten-to-bold":
-                this.addActionButton(view, "变化改加粗", (editor) => flattenSelectionToBold(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["flatten-to-bold"], (editor) =>
+                    flattenSelectionToBold(editor)
+                );
                 break;
             case "remove-red":
-                this.addActionButton(view, "取消变红", (editor) => removeRedInSelection(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["remove-red"], (editor) =>
+                    removeRedInSelection(editor)
+                );
                 break;
             case "red-underline":
-                this.addActionButton(view, "红+下划线", (editor) => toggleRedUnderline(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["red-underline"], (editor) =>
+                    toggleRedUnderline(editor)
+                );
                 break;
             case "red-wavy":
-                this.addActionButton(view, "红+波浪线", (editor) => toggleRedWavy(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["red-wavy"], (editor) =>
+                    toggleRedWavy(editor)
+                );
                 break;
             case "remove-blank-lines":
-                this.addActionButton(view, "去除空格行", (editor) => removeBlankLinesInSelection(editor));
-                break;
-            case "dunhao":
-                this.addActionButton(view, "、", (editor) => insertTextAtCursor(editor, "、"));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["remove-blank-lines"], (editor) =>
+                    removeBlankLinesInSelection(editor)
+                );
                 break;
             case "code-language":
                 this.addLanguageButton(view);
                 break;
             case "block-math-to-inline":
-                this.addActionButton(view, "公式转行内", (editor) => convertBlockMathToInline(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["block-math-to-inline"], (editor) =>
+                    convertBlockMathToInline(editor)
+                );
                 break;
             case "block-math-to-inline-join":
-                this.addActionButton(view, "公式转行内换行", (editor) => convertBlockMathToInlineAndJoin(editor));
+                this.addActionButton(
+                    view,
+                    TOOLBAR_BUTTON_LABELS["block-math-to-inline-join"],
+                    (editor) => convertBlockMathToInlineAndJoin(editor)
+                );
                 break;
             case "normalize-punctuation":
-                this.addActionButton(view, "符号格式化", (editor) => normalizePunctuation(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["normalize-punctuation"], (editor) =>
+                    normalizePunctuation(editor)
+                );
                 break;
             case "callout":
                 this.addCalloutButton(view);
                 break;
             case "remove-callout":
-                this.addActionButton(view, "取消提示", (editor) => removeCallout(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["remove-callout"], (editor) =>
+                    removeCallout(editor)
+                );
                 break;
             case "table-to-md":
-                this.addActionButton(view, "表格转MD", (editor) => convertHtmlTableToMarkdown(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["table-to-md"], (editor) =>
+                    convertHtmlTableToMarkdown(editor)
+                );
                 break;
         }
+    }
+
+    private runToolbarAction(view: MarkdownView, buttonId: ToolbarButtonId, anchor?: HTMLElement): void {
+        switch (buttonId) {
+            case "typora-mode":
+                void this.toggleTyporaMode();
+                break;
+            case "typora-config":
+                new TyporaConfigModal(this.plugin.app, this.plugin).open();
+                break;
+            case "bold":
+                toggleBold(view.editor);
+                break;
+            case "flatten-to-bold":
+                flattenSelectionToBold(view.editor);
+                break;
+            case "remove-red":
+                removeRedInSelection(view.editor);
+                break;
+            case "red-underline":
+                toggleRedUnderline(view.editor);
+                break;
+            case "red-wavy":
+                toggleRedWavy(view.editor);
+                break;
+            case "remove-blank-lines":
+                removeBlankLinesInSelection(view.editor);
+                break;
+            case "code-language":
+                if (anchor) this.showLanguageMenu(anchor);
+                break;
+            case "block-math-to-inline":
+                convertBlockMathToInline(view.editor);
+                break;
+            case "block-math-to-inline-join":
+                convertBlockMathToInlineAndJoin(view.editor);
+                break;
+            case "normalize-punctuation":
+                normalizePunctuation(view.editor);
+                break;
+            case "callout":
+                if (anchor) this.showCalloutMenu(anchor, view);
+                else wrapCallout(view.editor, "tip");
+                break;
+            case "remove-callout":
+                removeCallout(view.editor);
+                break;
+            case "table-to-md":
+                convertHtmlTableToMarkdown(view.editor);
+                break;
+        }
+    }
+
+    private async toggleTyporaMode(): Promise<void> {
+        this.plugin.settings.typoraMode = !this.plugin.settings.typoraMode;
+        await this.plugin.saveSettings();
+        this.plugin.applyTyporaMode();
+        this.refresh();
     }
 
     private addTyporaModeButton(_view: MarkdownView): void {
@@ -132,18 +234,7 @@ export class EditorToolbarManager {
         this.plugin.registerDomEvent(btn, "mousedown", (e) => e.preventDefault());
         this.plugin.registerDomEvent(btn, "click", async (e) => {
             e.preventDefault();
-            this.plugin.settings.typoraMode = !this.plugin.settings.typoraMode;
-            await this.plugin.saveSettings();
-            this.plugin.applyTyporaMode();
-            // 更新按钮状态
-            const nowActive = this.plugin.settings.typoraMode;
-            btn.textContent = nowActive ? "✓ Typora" : "Typora";
-            btn.setAttr("aria-label", nowActive ? "关闭 Typora 模式" : "启用 Typora 模式");
-            if (nowActive) {
-                btn.addClass("typora-mode-active");
-            } else {
-                btn.removeClass("typora-mode-active");
-            }
+            await this.toggleTyporaMode();
         });
     }
 
@@ -152,7 +243,7 @@ export class EditorToolbarManager {
 
         const btn = this.toolbarEl.createEl("button", {
             cls: "format-hotkeys-toolbar-btn format-hotkeys-typora-config-btn",
-            text: "Typora配置",
+            text: "配置",
         });
         btn.setAttr("aria-label", "打开 Typora 配置");
 
@@ -240,6 +331,7 @@ export class EditorToolbarManager {
                 item.onClick(async () => {
                     this.plugin.settings.defaultCodeLanguage = lang;
                     await this.plugin.saveSettings();
+                    this.refresh();
                 });
             });
         }
@@ -257,6 +349,7 @@ export class EditorToolbarManager {
                 }
                 this.plugin.settings.defaultCodeLanguage = value;
                 await this.plugin.saveSettings();
+                this.refresh();
             });
         });
 
@@ -266,19 +359,44 @@ export class EditorToolbarManager {
         });
     }
 
-    private renderMoreButton(_view: MarkdownView): void {
+    private renderMoreButton(view: MarkdownView): void {
         if (!this.toolbarEl) return;
 
         const btn = this.toolbarEl.createEl("button", {
             cls: "format-hotkeys-toolbar-btn format-hotkeys-more-btn",
-            text: "…",
+            text: "更多",
         });
-        btn.setAttr("aria-label", "编辑按钮顺序");
+        btn.setAttr("aria-label", "更多工具与整理工具栏");
 
         this.plugin.registerDomEvent(btn, "mousedown", (e) => e.preventDefault());
         this.plugin.registerDomEvent(btn, "click", (e) => {
             e.preventDefault();
-            new ToolbarOrderModal(this.plugin.app, this.plugin).open();
+            this.showMoreMenu(btn, view);
+        });
+    }
+
+    private showMoreMenu(anchor: HTMLElement, view: MarkdownView): void {
+        const menu = new Menu();
+        const overflow = this.overflowButtonIds();
+
+        if (overflow.length > 0) {
+            for (const id of overflow) {
+                menu.addItem((item) => {
+                    item.setTitle(TOOLBAR_BUTTON_LABELS[id]);
+                    item.onClick(() => this.runToolbarAction(view, id, anchor));
+                });
+            }
+            menu.addSeparator();
+        }
+
+        menu.addItem((item) => {
+            item.setTitle("整理工具栏…");
+            item.onClick(() => new ToolbarOrderModal(this.plugin.app, this.plugin).open());
+        });
+
+        menu.showAtPosition({
+            x: anchor.getBoundingClientRect().left,
+            y: anchor.getBoundingClientRect().top - 4,
         });
     }
 

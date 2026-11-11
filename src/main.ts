@@ -18,7 +18,14 @@ import {
     toggleRedUnderline,
     toggleRedWavy,
 } from "./editor-utils";
-import { DEFAULT_SETTINGS, FormatHotkeysSettingTab, FormatHotkeysSettings, ToolbarButtonId } from "./settings";
+import {
+    ALL_TOOLBAR_BUTTONS,
+    DEFAULT_SETTINGS,
+    FormatHotkeysSettingTab,
+    FormatHotkeysSettings,
+    TOOLBAR_LAYOUT_VERSION,
+    ToolbarButtonId,
+} from "./settings";
 import { EditorToolbarManager } from "./toolbar";
 import { TyporaConfigModal } from "./typora-config-modal";
 import { readViewState, applyViewState, statesEqual, EditorStateSnapshot } from "./editor-state";
@@ -478,6 +485,9 @@ export default class FormatHotkeysPlugin extends Plugin {
 
     async loadSettings() {
         const data = (await this.loadData()) as Partial<FormatHotkeysSettings> | null;
+        // 必须以磁盘上的版本为准；缺省视为 0，才能触发精简工具栏迁移
+        const layoutVersion = Number(data?.toolbarLayoutVersion ?? 0);
+
         this.settings = {
             ...DEFAULT_SETTINGS,
             ...(data ?? {}),
@@ -487,42 +497,35 @@ export default class FormatHotkeysPlugin extends Plugin {
             this.settings.codeLanguages = [...DEFAULT_SETTINGS.codeLanguages];
         }
 
-        // 兼容旧按钮 id
+        // 兼容旧按钮 id；顿号已改 Alt+`，从工具栏移除
         if (Array.isArray(this.settings.toolbarButtonOrder)) {
-            this.settings.toolbarButtonOrder = this.settings.toolbarButtonOrder.map((id) =>
-                (id as string) === "callout-tip" ? "callout" : id
-            ) as ToolbarButtonId[];
+            this.settings.toolbarButtonOrder = this.settings.toolbarButtonOrder
+                .map((id) => ((id as string) === "callout-tip" ? "callout" : id))
+                .filter((id) => (id as string) !== "dunhao") as ToolbarButtonId[];
         }
 
-        const validIds = new Set<ToolbarButtonId>([
-            "typora-mode",
-            "typora-config",
-            "bold",
-            "flatten-to-bold",
-            "remove-red",
-            "red-underline",
-            "red-wavy",
-            "callout",
-            "remove-callout",
-            "table-to-md",
-            "remove-blank-lines",
-            "dunhao",
-            "code-language",
-            "block-math-to-inline",
-            "block-math-to-inline-join",
-            "normalize-punctuation",
-        ]);
-        if (!Array.isArray(this.settings.toolbarButtonOrder) || this.settings.toolbarButtonOrder.length === 0) {
+        const validIds = new Set<ToolbarButtonId>(ALL_TOOLBAR_BUTTONS);
+
+        // 布局大改时一次性切到精简默认（未显示的进「更多」）
+        const needsPersist = layoutVersion < TOOLBAR_LAYOUT_VERSION;
+        if (needsPersist) {
+            this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
+        } else if (
+            !Array.isArray(this.settings.toolbarButtonOrder) ||
+            this.settings.toolbarButtonOrder.length === 0
+        ) {
             this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
         } else {
             this.settings.toolbarButtonOrder = this.settings.toolbarButtonOrder.filter((id) =>
                 validIds.has(id)
             );
-            for (const id of DEFAULT_SETTINGS.toolbarButtonOrder) {
-                if (!this.settings.toolbarButtonOrder.includes(id)) {
-                    this.settings.toolbarButtonOrder.push(id);
-                }
+            if (this.settings.toolbarButtonOrder.length === 0) {
+                this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
             }
+        }
+        this.settings.toolbarLayoutVersion = TOOLBAR_LAYOUT_VERSION;
+        if (needsPersist) {
+            await this.saveData(this.settings);
         }
     }
 

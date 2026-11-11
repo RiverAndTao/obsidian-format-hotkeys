@@ -5,7 +5,6 @@ import { TyporaSettingsPanel } from "./typora-settings-ui";
 
 export type ToolbarButtonId =
     | "remove-blank-lines"
-    | "dunhao"
     | "code-language"
     | "block-math-to-inline"
     | "block-math-to-inline-join"
@@ -21,10 +20,31 @@ export type ToolbarButtonId =
     | "red-underline"
     | "red-wavy";
 
+/** 全部可配置到工具栏的按钮（不含已改快捷键的「、」） */
+export const ALL_TOOLBAR_BUTTONS: ToolbarButtonId[] = [
+    "typora-mode",
+    "typora-config",
+    "code-language",
+    "callout",
+    "remove-callout",
+    "bold",
+    "flatten-to-bold",
+    "remove-red",
+    "red-underline",
+    "red-wavy",
+    "table-to-md",
+    "remove-blank-lines",
+    "block-math-to-inline",
+    "block-math-to-inline-join",
+    "normalize-punctuation",
+];
+
 export interface FormatHotkeysSettings {
     defaultCodeLanguage: string;
     codeLanguages: string[];
     toolbarButtonOrder: ToolbarButtonId[];
+    /** 工具栏布局版本：升级时用于一次性迁移精简默认按钮 */
+    toolbarLayoutVersion: number;
     typoraMode: boolean;
     typora: TyporaStyleSettings;
     /** 是否恢复上次编辑位置（切换文件 / 关闭重开后恢复光标/滚动/选区） */
@@ -33,27 +53,23 @@ export interface FormatHotkeysSettings {
     tableWidthStable: boolean;
 }
 
+/** 当前布局版本：有快捷键的按钮移出工具栏，默认只保留常用项 */
+export const TOOLBAR_LAYOUT_VERSION = 2;
+
 export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
     defaultCodeLanguage: "",
     codeLanguages: ["java", "python", "javascript", "typescript", "bash", "sql", ""],
+    // 默认精简：模式 / 配置 / 语言 / 提示 / 常用样式与转换；其余进「更多」
     toolbarButtonOrder: [
         "typora-mode",
         "typora-config",
-        "bold",
-        "flatten-to-bold",
-        "remove-red",
-        "red-underline",
-        "red-wavy",
-        "callout",
-        "remove-callout",
-        "table-to-md",
-        "remove-blank-lines",
-        "dunhao",
         "code-language",
-        "block-math-to-inline",
-        "block-math-to-inline-join",
-        "normalize-punctuation",
+        "callout",
+        "flatten-to-bold",
+        "red-underline",
+        "table-to-md",
     ],
+    toolbarLayoutVersion: TOOLBAR_LAYOUT_VERSION,
     typoraMode: false,
     typora: cloneTyporaStyle(DEFAULT_TYPORA_STYLE),
     restoreEditorPosition: true,
@@ -62,7 +78,6 @@ export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
 
 export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
     "remove-blank-lines": "去除空格行",
-    dunhao: "、",
     "code-language": "代码语言",
     "block-math-to-inline": "公式转行内",
     "block-math-to-inline-join": "公式转行内换行",
@@ -74,7 +89,7 @@ export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
     "remove-red": "取消变红",
     "red-underline": "红+下划线",
     "red-wavy": "红+波浪线",
-    callout: "Tips",
+    callout: "提示",
     "remove-callout": "取消提示",
     "table-to-md": "表格转MD",
 };

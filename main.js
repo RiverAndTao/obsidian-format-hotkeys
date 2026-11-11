@@ -1392,27 +1392,40 @@ class TyporaSettingsPanel {
     }
 }
 
+/** 全部可配置到工具栏的按钮（不含已改快捷键的「、」） */
+const ALL_TOOLBAR_BUTTONS = [
+    "typora-mode",
+    "typora-config",
+    "code-language",
+    "callout",
+    "remove-callout",
+    "bold",
+    "flatten-to-bold",
+    "remove-red",
+    "red-underline",
+    "red-wavy",
+    "table-to-md",
+    "remove-blank-lines",
+    "block-math-to-inline",
+    "block-math-to-inline-join",
+    "normalize-punctuation",
+];
+/** 当前布局版本：有快捷键的按钮移出工具栏，默认只保留常用项 */
+const TOOLBAR_LAYOUT_VERSION = 2;
 const DEFAULT_SETTINGS = {
     defaultCodeLanguage: "",
     codeLanguages: ["java", "python", "javascript", "typescript", "bash", "sql", ""],
+    // 默认精简：模式 / 配置 / 语言 / 提示 / 常用样式与转换；其余进「更多」
     toolbarButtonOrder: [
         "typora-mode",
         "typora-config",
-        "bold",
-        "flatten-to-bold",
-        "remove-red",
-        "red-underline",
-        "red-wavy",
-        "callout",
-        "remove-callout",
-        "table-to-md",
-        "remove-blank-lines",
-        "dunhao",
         "code-language",
-        "block-math-to-inline",
-        "block-math-to-inline-join",
-        "normalize-punctuation",
+        "callout",
+        "flatten-to-bold",
+        "red-underline",
+        "table-to-md",
     ],
+    toolbarLayoutVersion: TOOLBAR_LAYOUT_VERSION,
     typoraMode: false,
     typora: cloneTyporaStyle(DEFAULT_TYPORA_STYLE),
     restoreEditorPosition: true,
@@ -1420,7 +1433,6 @@ const DEFAULT_SETTINGS = {
 };
 const TOOLBAR_BUTTON_LABELS = {
     "remove-blank-lines": "去除空格行",
-    dunhao: "、",
     "code-language": "代码语言",
     "block-math-to-inline": "公式转行内",
     "block-math-to-inline-join": "公式转行内换行",
@@ -1432,7 +1444,7 @@ const TOOLBAR_BUTTON_LABELS = {
     "remove-red": "取消变红",
     "red-underline": "红+下划线",
     "red-wavy": "红+波浪线",
-    callout: "Tips",
+    callout: "提示",
     "remove-callout": "取消提示",
     "table-to-md": "表格转MD",
 };
@@ -1575,43 +1587,79 @@ class ToolbarOrderModal extends ObsidianApi.Modal {
     constructor(app, plugin) {
         super(app);
         this.plugin = plugin;
-        this.order = [...plugin.settings.toolbarButtonOrder];
+        this.visible = [...plugin.settings.toolbarButtonOrder];
     }
     onOpen() {
         const { contentEl, titleEl } = this;
-        titleEl.setText("编辑按钮顺序");
+        titleEl.setText("整理工具栏");
         contentEl.createEl("p", {
-            text: "调整工具栏按钮的显示顺序（「…」按钮始终在最右侧）",
+            text: "勾选显示在工具栏上的按钮，可用 ↑↓ 调整顺序；未勾选的会出现在「更多」菜单里。顿号「、」已改用 Alt+`，不再占用按钮。",
             cls: "format-hotkeys-order-desc",
         });
         const listEl = contentEl.createDiv({ cls: "format-hotkeys-order-list" });
         this.renderList(listEl);
-        new ObsidianApi.Setting(contentEl).addButton((btn) => btn.setButtonText("完成").setCta().onClick(() => __awaiter(this, void 0, void 0, function* () {
-            this.plugin.settings.toolbarButtonOrder = [...this.order];
+        new ObsidianApi.Setting(contentEl)
+            .addButton((btn) => btn.setButtonText("恢复默认").onClick(() => {
+            this.visible = [...DEFAULT_SETTINGS.toolbarButtonOrder];
+            this.renderList(listEl);
+        }))
+            .addButton((btn) => btn
+            .setButtonText("完成")
+            .setCta()
+            .onClick(() => __awaiter(this, void 0, void 0, function* () {
+            this.plugin.settings.toolbarButtonOrder = [...this.visible];
             yield this.plugin.saveSettings();
             this.close();
         })));
     }
     renderList(container) {
         container.empty();
-        this.order.forEach((id, index) => {
-            const row = container.createDiv({ cls: "format-hotkeys-order-row" });
-            row.createSpan({ text: TOOLBAR_BUTTON_LABELS[id], cls: "format-hotkeys-order-label" });
-            const controls = row.createDiv({ cls: "format-hotkeys-order-controls" });
+        const hidden = ALL_TOOLBAR_BUTTONS.filter((id) => !this.visible.includes(id));
+        const rows = [
+            ...this.visible.map((id) => ({ id, shown: true })),
+            ...hidden.map((id) => ({ id, shown: false })),
+        ];
+        rows.forEach((row) => {
+            const el = container.createDiv({ cls: "format-hotkeys-order-row" });
+            const check = el.createEl("input", { type: "checkbox", cls: "format-hotkeys-order-check" });
+            check.checked = row.shown;
+            check.addEventListener("change", () => {
+                if (check.checked) {
+                    if (!this.visible.includes(row.id))
+                        this.visible.push(row.id);
+                }
+                else {
+                    this.visible = this.visible.filter((id) => id !== row.id);
+                }
+                this.renderList(container);
+            });
+            el.createSpan({ text: TOOLBAR_BUTTON_LABELS[row.id], cls: "format-hotkeys-order-label" });
+            if (!row.shown) {
+                el.createSpan({ text: "更多", cls: "format-hotkeys-order-badge" });
+                return;
+            }
+            const visibleIndex = this.visible.indexOf(row.id);
+            const controls = el.createDiv({ cls: "format-hotkeys-order-controls" });
             const upBtn = controls.createEl("button", { text: "↑", cls: "format-hotkeys-order-btn" });
-            upBtn.disabled = index === 0;
+            upBtn.disabled = visibleIndex <= 0;
             upBtn.addEventListener("click", () => {
-                if (index === 0)
+                if (visibleIndex <= 0)
                     return;
-                [this.order[index - 1], this.order[index]] = [this.order[index], this.order[index - 1]];
+                [this.visible[visibleIndex - 1], this.visible[visibleIndex]] = [
+                    this.visible[visibleIndex],
+                    this.visible[visibleIndex - 1],
+                ];
                 this.renderList(container);
             });
             const downBtn = controls.createEl("button", { text: "↓", cls: "format-hotkeys-order-btn" });
-            downBtn.disabled = index === this.order.length - 1;
+            downBtn.disabled = visibleIndex >= this.visible.length - 1;
             downBtn.addEventListener("click", () => {
-                if (index === this.order.length - 1)
+                if (visibleIndex >= this.visible.length - 1)
                     return;
-                [this.order[index], this.order[index + 1]] = [this.order[index + 1], this.order[index]];
+                [this.visible[visibleIndex], this.visible[visibleIndex + 1]] = [
+                    this.visible[visibleIndex + 1],
+                    this.visible[visibleIndex],
+                ];
                 this.renderList(container);
             });
         });
@@ -1686,6 +1734,10 @@ class EditorToolbarManager {
         }
         this.renderMoreButton(view);
     }
+    overflowButtonIds() {
+        const visible = new Set(this.plugin.settings.toolbarButtonOrder);
+        return ALL_TOOLBAR_BUTTONS.filter((id) => !visible.has(id));
+    }
     renderButton(view, buttonId) {
         switch (buttonId) {
             case "typora-mode":
@@ -1695,48 +1747,106 @@ class EditorToolbarManager {
                 this.addTyporaConfigButton();
                 break;
             case "bold":
-                this.addActionButton(view, "加粗", (editor) => toggleBold(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS.bold, (editor) => toggleBold(editor));
                 break;
             case "flatten-to-bold":
-                this.addActionButton(view, "变化改加粗", (editor) => flattenSelectionToBold(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["flatten-to-bold"], (editor) => flattenSelectionToBold(editor));
                 break;
             case "remove-red":
-                this.addActionButton(view, "取消变红", (editor) => removeRedInSelection(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["remove-red"], (editor) => removeRedInSelection(editor));
                 break;
             case "red-underline":
-                this.addActionButton(view, "红+下划线", (editor) => toggleRedUnderline(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["red-underline"], (editor) => toggleRedUnderline(editor));
                 break;
             case "red-wavy":
-                this.addActionButton(view, "红+波浪线", (editor) => toggleRedWavy(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["red-wavy"], (editor) => toggleRedWavy(editor));
                 break;
             case "remove-blank-lines":
-                this.addActionButton(view, "去除空格行", (editor) => removeBlankLinesInSelection(editor));
-                break;
-            case "dunhao":
-                this.addActionButton(view, "、", (editor) => insertTextAtCursor(editor, "、"));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["remove-blank-lines"], (editor) => removeBlankLinesInSelection(editor));
                 break;
             case "code-language":
                 this.addLanguageButton(view);
                 break;
             case "block-math-to-inline":
-                this.addActionButton(view, "公式转行内", (editor) => convertBlockMathToInline(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["block-math-to-inline"], (editor) => convertBlockMathToInline(editor));
                 break;
             case "block-math-to-inline-join":
-                this.addActionButton(view, "公式转行内换行", (editor) => convertBlockMathToInlineAndJoin(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["block-math-to-inline-join"], (editor) => convertBlockMathToInlineAndJoin(editor));
                 break;
             case "normalize-punctuation":
-                this.addActionButton(view, "符号格式化", (editor) => normalizePunctuation(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["normalize-punctuation"], (editor) => normalizePunctuation(editor));
                 break;
             case "callout":
                 this.addCalloutButton(view);
                 break;
             case "remove-callout":
-                this.addActionButton(view, "取消提示", (editor) => removeCallout(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["remove-callout"], (editor) => removeCallout(editor));
                 break;
             case "table-to-md":
-                this.addActionButton(view, "表格转MD", (editor) => convertHtmlTableToMarkdown(editor));
+                this.addActionButton(view, TOOLBAR_BUTTON_LABELS["table-to-md"], (editor) => convertHtmlTableToMarkdown(editor));
                 break;
         }
+    }
+    runToolbarAction(view, buttonId, anchor) {
+        switch (buttonId) {
+            case "typora-mode":
+                void this.toggleTyporaMode();
+                break;
+            case "typora-config":
+                new TyporaConfigModal(this.plugin.app, this.plugin).open();
+                break;
+            case "bold":
+                toggleBold(view.editor);
+                break;
+            case "flatten-to-bold":
+                flattenSelectionToBold(view.editor);
+                break;
+            case "remove-red":
+                removeRedInSelection(view.editor);
+                break;
+            case "red-underline":
+                toggleRedUnderline(view.editor);
+                break;
+            case "red-wavy":
+                toggleRedWavy(view.editor);
+                break;
+            case "remove-blank-lines":
+                removeBlankLinesInSelection(view.editor);
+                break;
+            case "code-language":
+                if (anchor)
+                    this.showLanguageMenu(anchor);
+                break;
+            case "block-math-to-inline":
+                convertBlockMathToInline(view.editor);
+                break;
+            case "block-math-to-inline-join":
+                convertBlockMathToInlineAndJoin(view.editor);
+                break;
+            case "normalize-punctuation":
+                normalizePunctuation(view.editor);
+                break;
+            case "callout":
+                if (anchor)
+                    this.showCalloutMenu(anchor, view);
+                else
+                    wrapCallout(view.editor, "tip");
+                break;
+            case "remove-callout":
+                removeCallout(view.editor);
+                break;
+            case "table-to-md":
+                convertHtmlTableToMarkdown(view.editor);
+                break;
+        }
+    }
+    toggleTyporaMode() {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.plugin.settings.typoraMode = !this.plugin.settings.typoraMode;
+            yield this.plugin.saveSettings();
+            this.plugin.applyTyporaMode();
+            this.refresh();
+        });
     }
     addTyporaModeButton(_view) {
         if (!this.toolbarEl)
@@ -1750,19 +1860,7 @@ class EditorToolbarManager {
         this.plugin.registerDomEvent(btn, "mousedown", (e) => e.preventDefault());
         this.plugin.registerDomEvent(btn, "click", (e) => __awaiter(this, void 0, void 0, function* () {
             e.preventDefault();
-            this.plugin.settings.typoraMode = !this.plugin.settings.typoraMode;
-            yield this.plugin.saveSettings();
-            this.plugin.applyTyporaMode();
-            // 更新按钮状态
-            const nowActive = this.plugin.settings.typoraMode;
-            btn.textContent = nowActive ? "✓ Typora" : "Typora";
-            btn.setAttr("aria-label", nowActive ? "关闭 Typora 模式" : "启用 Typora 模式");
-            if (nowActive) {
-                btn.addClass("typora-mode-active");
-            }
-            else {
-                btn.removeClass("typora-mode-active");
-            }
+            yield this.toggleTyporaMode();
         }));
     }
     addTyporaConfigButton() {
@@ -1770,7 +1868,7 @@ class EditorToolbarManager {
             return;
         const btn = this.toolbarEl.createEl("button", {
             cls: "format-hotkeys-toolbar-btn format-hotkeys-typora-config-btn",
-            text: "Typora配置",
+            text: "配置",
         });
         btn.setAttr("aria-label", "打开 Typora 配置");
         this.plugin.registerDomEvent(btn, "mousedown", (e) => e.preventDefault());
@@ -1844,6 +1942,7 @@ class EditorToolbarManager {
                 item.onClick(() => __awaiter(this, void 0, void 0, function* () {
                     this.plugin.settings.defaultCodeLanguage = lang;
                     yield this.plugin.saveSettings();
+                    this.refresh();
                 }));
             });
         }
@@ -1859,6 +1958,7 @@ class EditorToolbarManager {
                 }
                 this.plugin.settings.defaultCodeLanguage = value;
                 yield this.plugin.saveSettings();
+                this.refresh();
             }));
         });
         menu.showAtPosition({
@@ -1866,18 +1966,39 @@ class EditorToolbarManager {
             y: anchor.getBoundingClientRect().top - 4,
         });
     }
-    renderMoreButton(_view) {
+    renderMoreButton(view) {
         if (!this.toolbarEl)
             return;
         const btn = this.toolbarEl.createEl("button", {
             cls: "format-hotkeys-toolbar-btn format-hotkeys-more-btn",
-            text: "…",
+            text: "更多",
         });
-        btn.setAttr("aria-label", "编辑按钮顺序");
+        btn.setAttr("aria-label", "更多工具与整理工具栏");
         this.plugin.registerDomEvent(btn, "mousedown", (e) => e.preventDefault());
         this.plugin.registerDomEvent(btn, "click", (e) => {
             e.preventDefault();
-            new ToolbarOrderModal(this.plugin.app, this.plugin).open();
+            this.showMoreMenu(btn, view);
+        });
+    }
+    showMoreMenu(anchor, view) {
+        const menu = new ObsidianApi.Menu();
+        const overflow = this.overflowButtonIds();
+        if (overflow.length > 0) {
+            for (const id of overflow) {
+                menu.addItem((item) => {
+                    item.setTitle(TOOLBAR_BUTTON_LABELS[id]);
+                    item.onClick(() => this.runToolbarAction(view, id, anchor));
+                });
+            }
+            menu.addSeparator();
+        }
+        menu.addItem((item) => {
+            item.setTitle("整理工具栏…");
+            item.onClick(() => new ToolbarOrderModal(this.plugin.app, this.plugin).open());
+        });
+        menu.showAtPosition({
+            x: anchor.getBoundingClientRect().left,
+            y: anchor.getBoundingClientRect().top - 4,
         });
     }
     detach() {
@@ -4064,44 +4185,40 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
         });
     }
     loadSettings() {
+        var _a;
         return __awaiter(this, void 0, void 0, function* () {
             const data = (yield this.loadData());
+            // 必须以磁盘上的版本为准；缺省视为 0，才能触发精简工具栏迁移
+            const layoutVersion = Number((_a = data === null || data === void 0 ? void 0 : data.toolbarLayoutVersion) !== null && _a !== void 0 ? _a : 0);
             this.settings = Object.assign(Object.assign(Object.assign({}, DEFAULT_SETTINGS), (data !== null && data !== void 0 ? data : {})), { typora: mergeTyporaStyle(data === null || data === void 0 ? void 0 : data.typora) });
             if (!Array.isArray(this.settings.codeLanguages) || this.settings.codeLanguages.length === 0) {
                 this.settings.codeLanguages = [...DEFAULT_SETTINGS.codeLanguages];
             }
-            // 兼容旧按钮 id
+            // 兼容旧按钮 id；顿号已改 Alt+`，从工具栏移除
             if (Array.isArray(this.settings.toolbarButtonOrder)) {
-                this.settings.toolbarButtonOrder = this.settings.toolbarButtonOrder.map((id) => id === "callout-tip" ? "callout" : id);
+                this.settings.toolbarButtonOrder = this.settings.toolbarButtonOrder
+                    .map((id) => (id === "callout-tip" ? "callout" : id))
+                    .filter((id) => id !== "dunhao");
             }
-            const validIds = new Set([
-                "typora-mode",
-                "typora-config",
-                "bold",
-                "flatten-to-bold",
-                "remove-red",
-                "red-underline",
-                "red-wavy",
-                "callout",
-                "remove-callout",
-                "table-to-md",
-                "remove-blank-lines",
-                "dunhao",
-                "code-language",
-                "block-math-to-inline",
-                "block-math-to-inline-join",
-                "normalize-punctuation",
-            ]);
-            if (!Array.isArray(this.settings.toolbarButtonOrder) || this.settings.toolbarButtonOrder.length === 0) {
+            const validIds = new Set(ALL_TOOLBAR_BUTTONS);
+            // 布局大改时一次性切到精简默认（未显示的进「更多」）
+            const needsPersist = layoutVersion < TOOLBAR_LAYOUT_VERSION;
+            if (needsPersist) {
+                this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
+            }
+            else if (!Array.isArray(this.settings.toolbarButtonOrder) ||
+                this.settings.toolbarButtonOrder.length === 0) {
                 this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
             }
             else {
                 this.settings.toolbarButtonOrder = this.settings.toolbarButtonOrder.filter((id) => validIds.has(id));
-                for (const id of DEFAULT_SETTINGS.toolbarButtonOrder) {
-                    if (!this.settings.toolbarButtonOrder.includes(id)) {
-                        this.settings.toolbarButtonOrder.push(id);
-                    }
+                if (this.settings.toolbarButtonOrder.length === 0) {
+                    this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
                 }
+            }
+            this.settings.toolbarLayoutVersion = TOOLBAR_LAYOUT_VERSION;
+            if (needsPersist) {
+                yield this.saveData(this.settings);
             }
         });
     }
