@@ -19,8 +19,9 @@
     --typora-h6-color: var(--h6-color);
     --typora-heading-underline: 1px solid var(--background-modifier-border);
     --typora-quote-color: var(--text-muted);
-    --typora-quote-border: #d0d7de;
-    --typora-quote-bg: rgba(175, 184, 193, 0.12);
+    /* 跟主题中性边框走，避免主题强调色（常发黄）抢镜 */
+    --typora-quote-border: var(--background-modifier-border);
+    --typora-quote-bg: color-mix(in srgb, var(--text-muted) 10%, transparent);
     --typora-link-color: var(--link-color);
     --typora-inline-code-color: var(--code-normal, var(--text-normal));
     --typora-code-bg: #f6f8fa;
@@ -54,8 +55,8 @@ body.theme-dark {
     --typora-table-stripe: rgba(255, 255, 255, 0.09);
     --typora-table-base: var(--background-primary);
     --typora-code-bg: #1b1e25;
-    --typora-quote-border: #484f58;
-    --typora-quote-bg: rgba(110, 118, 129, 0.16);
+    --typora-quote-border: var(--background-modifier-border);
+    --typora-quote-bg: color-mix(in srgb, var(--text-muted) 14%, transparent);
     --typora-red: #ff7b72;
     --typora-cm-keyword: #c88fd0;
     --typora-cm-atom: #84b6cb;
@@ -620,7 +621,7 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .external-link {
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote {
     color: var(--typora-quote-color);
-    border-left: 0.25em solid var(--typora-quote-border);
+    border-left: 0.25em solid var(--typora-quote-border) !important;
     background-color: var(--typora-quote-bg);
     padding-top: 0.2em;
     padding-bottom: 0.2em;
@@ -634,14 +635,14 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote {
 }
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote-2 {
-    border-left-color: color-mix(in srgb, var(--typora-quote-border) 78%, transparent);
+    border-left-color: color-mix(in srgb, var(--typora-quote-border) 78%, transparent) !important;
     background-color: color-mix(in srgb, var(--typora-quote-bg) 70%, transparent);
 }
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote-3,
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote-4,
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote-5 {
-    border-left-color: color-mix(in srgb, var(--typora-quote-border) 55%, transparent);
+    border-left-color: color-mix(in srgb, var(--typora-quote-border) 55%, transparent) !important;
     background-color: color-mix(in srgb, var(--typora-quote-bg) 45%, transparent);
 }
 
@@ -664,7 +665,7 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote :is
 /* 阅读 / 预览视图的 blockquote */
 body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) blockquote {
     color: var(--typora-quote-color);
-    border-left: 0.25em solid var(--typora-quote-border);
+    border-left: 0.25em solid var(--typora-quote-border) !important;
     background-color: var(--typora-quote-bg);
     padding: 0.55em 1em;
     margin: 0.85em 0;
