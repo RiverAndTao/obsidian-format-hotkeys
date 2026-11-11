@@ -697,7 +697,7 @@ body.typora-mode-active .markdown-source-view.mod-cm6
 }
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock {
-    background-color: var(--code-background);
+    background-color: var(--code-background) !important;
     padding-left: 1em !important;
     padding-right: 1em;
     font-family: var(--font-monospace);
@@ -705,6 +705,23 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock {
     line-height: 1.45;
     text-indent: 0 !important;
     padding-inline-start: 1em !important;
+}
+
+/* 去掉代码块内「偏白一层」：活跃行高亮 / 主题二次背景 / pre>code 叠色 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock.cm-active,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-active {
+    background-color: var(--code-background) !important;
+}
+
+body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) pre {
+    background-color: var(--code-background) !important;
+}
+
+body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) pre > code,
+body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) pre code {
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
 }
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin {
@@ -1039,7 +1056,7 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line {
    第十五部分：活跃行（编辑时露出语法，背景尽量克制）
    ===================================================== */
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-active {
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-active:not(.HyperMD-codeblock) {
     background-color: var(--typora-active-line-bg);
     border-radius: 3px;
 }
