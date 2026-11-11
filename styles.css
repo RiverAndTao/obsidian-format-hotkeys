@@ -23,6 +23,7 @@
     --typora-quote-bg: rgba(175, 184, 193, 0.12);
     --typora-link-color: var(--link-color);
     --typora-inline-code-color: var(--code-normal, var(--text-normal));
+    --typora-code-bg: #f6f8fa;
     --typora-active-line-bg: rgba(135, 131, 120, 0.05);
     /* 表格：对齐 Typora GitHub（浅色）/ Night（全宽），隔行填充随主题切换 */
     --typora-table-border: #dfe2e5;
@@ -52,6 +53,7 @@ body.theme-dark {
     /* 深色下隔行要足够能看出与表头/偶数行的区别 */
     --typora-table-stripe: rgba(255, 255, 255, 0.09);
     --typora-table-base: var(--background-primary);
+    --typora-code-bg: #1b1e25;
     --typora-quote-border: #484f58;
     --typora-quote-bg: rgba(110, 118, 129, 0.16);
     --typora-red: #ff7b72;
@@ -685,36 +687,29 @@ body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) blockquo
 
 /* =====================================================
    第八部分：代码块
+   背景统一 --typora-code-bg；围栏行尺寸不随选中变化
    ===================================================== */
 
-body.typora-mode-active .markdown-source-view.mod-cm6
-.cm-line:not(.cm-active).HyperMD-codeblock-begin,
-body.typora-mode-active .markdown-source-view.mod-cm6
-.cm-line:not(.cm-active).HyperMD-codeblock-end {
-    opacity: 0.3;
-    font-size: 0.8em;
-    color: var(--text-muted);
-}
-
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock {
-    background-color: var(--code-background) !important;
+    background-color: var(--typora-code-bg) !important;
     padding-left: 1em !important;
     padding-right: 1em;
     font-family: var(--font-monospace);
-    font-size: 0.9em;
-    line-height: 1.45;
+    font-size: 0.9em !important;
+    line-height: 1.45 !important;
     text-indent: 0 !important;
     padding-inline-start: 1em !important;
+    box-sizing: border-box;
 }
 
 /* 去掉代码块内「偏白一层」：活跃行高亮 / 主题二次背景 / pre>code 叠色 */
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock.cm-active,
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-active {
-    background-color: var(--code-background) !important;
+    background-color: var(--typora-code-bg) !important;
 }
 
 body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) pre {
-    background-color: var(--code-background) !important;
+    background-color: var(--typora-code-bg) !important;
 }
 
 body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) pre > code,
@@ -722,6 +717,19 @@ body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) pre code
     background: transparent !important;
     background-color: transparent !important;
     box-shadow: none !important;
+}
+
+/*
+ * 围栏行（```）始终与内容行同字号/行高，避免选中时放大缩小。
+ * hide-syntax 隐藏标记后仍用 min-height 占位，尺寸不跳。
+ */
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin,
+body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-end {
+    font-size: 0.9em !important;
+    line-height: 1.45 !important;
+    min-height: calc(0.9em * 1.45);
+    opacity: 1 !important;
+    color: var(--text-muted);
 }
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin {
