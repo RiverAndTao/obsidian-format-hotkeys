@@ -19,9 +19,9 @@
     --typora-h6-color: var(--h6-color);
     --typora-heading-underline: 1px solid var(--background-modifier-border);
     --typora-quote-color: var(--text-muted);
-    /* 跟主题中性边框走，避免主题强调色（常发黄）抢镜 */
-    --typora-quote-border: var(--background-modifier-border);
-    --typora-quote-bg: color-mix(in srgb, var(--text-muted) 10%, transparent);
+    /* 中性边框略偏紫，贴近常见暗色主题又不抢戏 */
+    --typora-quote-border: color-mix(in srgb, #7c6fbf 35%, var(--background-modifier-border));
+    --typora-quote-bg: color-mix(in srgb, #7c6fbf 8%, transparent);
     --typora-link-color: var(--link-color);
     --typora-inline-code-color: var(--code-normal, var(--text-normal));
     --typora-code-bg: #f6f8fa;
@@ -55,8 +55,8 @@ body.theme-dark {
     --typora-table-stripe: rgba(255, 255, 255, 0.09);
     --typora-table-base: var(--background-primary);
     --typora-code-bg: #1b1e25;
-    --typora-quote-border: var(--background-modifier-border);
-    --typora-quote-bg: color-mix(in srgb, var(--text-muted) 14%, transparent);
+    --typora-quote-border: color-mix(in srgb, #8b7ec8 42%, var(--background-modifier-border));
+    --typora-quote-bg: color-mix(in srgb, #8b7ec8 10%, transparent);
     --typora-red: #ff7b72;
     --typora-cm-keyword: #c88fd0;
     --typora-cm-atom: #84b6cb;
