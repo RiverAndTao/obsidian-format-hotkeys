@@ -617,12 +617,27 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .external-link {
 /* =====================================================
    第七部分：块引用（只装饰整行，不把行内 span 变成 block）
    对齐 Typora：左边框 + 浅底 + 斜体，嵌套逐级加深边框
+
+   黄细线来源：Prime 等主题把
+     --blockquote-border-color: var(--color-orange)
+   Obsidian 核心用该变量画引用竖线；本插件再画一条 border-left，
+   就会叠出「紫粗线 + 橙黄细线」。这里统一接管变量并清掉第二层。
    ===================================================== */
+
+body.typora-mode-active {
+    --blockquote-border-color: var(--typora-quote-border) !important;
+    --blockquote-border-thickness: 0.25em;
+    --blockquote-background-color: var(--typora-quote-bg);
+    --blockquote-color: var(--typora-quote-color);
+}
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote {
     color: var(--typora-quote-color);
     border-left: 0.25em solid var(--typora-quote-border) !important;
+    border-inline-start: 0.25em solid var(--typora-quote-border) !important;
     background-color: var(--typora-quote-bg);
+    box-shadow: none !important;
+    outline: none !important;
     padding-top: 0.2em;
     padding-bottom: 0.2em;
     padding-left: 1em !important;
@@ -632,6 +647,15 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote {
     padding-inline-start: 1em !important;
     font-style: italic;
     border-radius: 0 4px 4px 0;
+}
+
+/* 主题/核心若用伪元素再画一条竖线，直接去掉 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote::before,
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote::after {
+    border: none !important;
+    box-shadow: none !important;
+    background: none !important;
+    width: 0 !important;
 }
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote-2 {
@@ -666,11 +690,20 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote :is
 body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) blockquote {
     color: var(--typora-quote-color);
     border-left: 0.25em solid var(--typora-quote-border) !important;
+    border-inline-start: 0.25em solid var(--typora-quote-border) !important;
     background-color: var(--typora-quote-bg);
+    box-shadow: none !important;
     padding: 0.55em 1em;
     margin: 0.85em 0;
     font-style: italic;
     border-radius: 0 6px 6px 0;
+}
+
+body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) blockquote::before,
+body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) blockquote::after {
+    border: none !important;
+    box-shadow: none !important;
+    background: none !important;
 }
 
 body.typora-mode-active :is(.markdown-preview-view, .markdown-rendered) blockquote > :first-child {
