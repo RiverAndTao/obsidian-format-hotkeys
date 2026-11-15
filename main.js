@@ -2102,7 +2102,7 @@ const markerDeco = view.Decoration.mark({ class: "typora-paren-list-marker" });
 function isTyporaModeOn$2() {
     return document.body.classList.contains("typora-mode-active");
 }
-function buildDecorations$3(view$1) {
+function buildDecorations$4(view$1) {
     const builder = new state.RangeSetBuilder();
     if (!isTyporaModeOn$2()) {
         return view.Decoration.none;
@@ -2147,12 +2147,12 @@ function buildDecorations$3(view$1) {
 }
 const parenListPlugin = view.ViewPlugin.fromClass(class {
     constructor(view) {
-        this.decorations = buildDecorations$3(view);
+        this.decorations = buildDecorations$4(view);
     }
     update(update) {
         const forced = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshParenListEffect)));
         if (update.docChanged || update.viewportChanged || forced) {
-            this.decorations = buildDecorations$3(update.view);
+            this.decorations = buildDecorations$4(update.view);
         }
     }
 }, {
@@ -2290,7 +2290,7 @@ function tokenizeLine$1(from, text, builder) {
         i++;
     }
 }
-function buildDecorations$2(view) {
+function buildDecorations$3(view) {
     const builder = new state.RangeSetBuilder();
     const doc = view.state.doc;
     let lang = null;
@@ -2315,12 +2315,12 @@ function buildDecorations$2(view) {
 const refreshAsmHighlightEffect = state.StateEffect.define();
 const asmHighlightPlugin = view.ViewPlugin.fromClass(class {
     constructor(view) {
-        this.decorations = buildDecorations$2(view);
+        this.decorations = buildDecorations$3(view);
     }
     update(update) {
         const forced = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshAsmHighlightEffect)));
         if (update.docChanged || update.viewportChanged || forced) {
-            this.decorations = buildDecorations$2(update.view);
+            this.decorations = buildDecorations$3(update.view);
         }
     }
 }, {
@@ -2366,6 +2366,73 @@ function registerAsmPrismLanguages(prism) {
             prism.languages[lang] = grammar;
         }
     }
+}
+
+/** c / cpp 家族。阅读视图同类语言走 styles.css 里的 language-* */
+const CPP_LANGS = new Set(["c", "cpp", "c++", "cc", "cxx", "h", "hpp", "hh", "hxx"]);
+const cppLine = view.Decoration.line({ class: "fh-cpp" });
+function languageId(info) {
+    var _a;
+    let lang = info.trim().toLowerCase();
+    const braced = lang.match(/^\{[.#]?([^}\s]+)/);
+    if (braced) {
+        lang = braced[1];
+    }
+    else {
+        lang = (_a = lang.split(/[\s:]/)[0]) !== null && _a !== void 0 ? _a : "";
+    }
+    return lang.replace(/^\.+/, "");
+}
+function isCppLang(info) {
+    return CPP_LANGS.has(languageId(info));
+}
+/** 行首围栏。返回标记字符和 info string；不是围栏则为 null。 */
+function fenceAt(text) {
+    const match = /^(?: {0,3}|\t)(```+|~~~+)(.*)$/.exec(text);
+    if (!match) {
+        return null;
+    }
+    const marker = match[1];
+    const char = marker[0] === "~" ? "~" : "`";
+    return { char, lang: match[2].trim() };
+}
+function buildDecorations$2(view) {
+    const builder = new state.RangeSetBuilder();
+    const doc = view.state.doc;
+    let fence = null;
+    for (let lineNo = 1; lineNo <= doc.lines; lineNo++) {
+        const line = doc.line(lineNo);
+        const found = fenceAt(line.text);
+        if (fence) {
+            if (found && found.char === fence.char && found.lang === "") {
+                fence = null;
+            }
+            else if (isCppLang(fence.lang)) {
+                builder.add(line.from, line.from, cppLine);
+            }
+            continue;
+        }
+        if (found) {
+            fence = found;
+        }
+    }
+    return builder.finish();
+}
+const cppHighlightPlugin = view.ViewPlugin.fromClass(class {
+    constructor(view) {
+        this.decorations = buildDecorations$2(view);
+    }
+    update(update) {
+        if (update.docChanged) {
+            this.decorations = buildDecorations$2(update.view);
+        }
+    }
+}, {
+    decorations: (value) => value.decorations,
+});
+/** 源码模式：给 C/C++ 代码行加上 fh-cpp，便于按 VS Code 配色覆盖。 */
+function createCppHighlightExtension() {
+    return cppHighlightPlugin;
 }
 
 const SQL_LANGS = new Set([
@@ -3900,6 +3967,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             this.addSettingTab(new FormatHotkeysSettingTab(this.app, this));
             this.registerEditorExtension(createParenListExtension());
             this.registerEditorExtension(createAsmHighlightExtension());
+            this.registerEditorExtension(createCppHighlightExtension());
             this.registerEditorExtension(createSqlHighlightExtension());
             this.registerEditorExtension(createHtmlStyleExtension());
             void this.registerPrismExtraLanguages();

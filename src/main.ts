@@ -33,6 +33,7 @@ import { applyTableStableStyle } from "./table-stable";
 import { applyTyporaStyleVars, clearTyporaStyleVars, mergeTyporaStyle } from "./typora-style";
 import { createParenListExtension, refreshParenListDecorations } from "./typora-paren-list";
 import { createAsmHighlightExtension, refreshAsmHighlight, registerAsmPrismLanguages } from "./asm-highlight";
+import { createCppHighlightExtension } from "./cpp-highlight";
 import { createSqlHighlightExtension, refreshSqlHighlight, registerSqlPrismLanguages } from "./sql-highlight";
 import { createHtmlStyleExtension, refreshHtmlStyleDecorations } from "./typora-html-style";
 import {
@@ -228,6 +229,7 @@ export default class FormatHotkeysPlugin extends Plugin {
 
         this.registerEditorExtension(createParenListExtension());
         this.registerEditorExtension(createAsmHighlightExtension());
+        this.registerEditorExtension(createCppHighlightExtension());
         this.registerEditorExtension(createSqlHighlightExtension());
         this.registerEditorExtension(createHtmlStyleExtension());
         void this.registerPrismExtraLanguages();
