@@ -47,9 +47,9 @@
     --typora-cm-builtin: #30a;
     --typora-cm-meta: #555;
     --typora-cm-property: var(--text-normal);
-    /* C/C++：Visual Studio 浅色。关键字红，类型青，变量深蓝。 */
+    /* C/C++：Visual Studio 浅色。关键字紫红，类型青，变量深蓝。 */
     --fh-cpp-comment: #008000;
-    --fh-cpp-keyword: #d0124a;
+    --fh-cpp-keyword: #c2187a;
     --fh-cpp-string: #a31515;
     --fh-cpp-number: #098658;
     --fh-cpp-function: #795e26;
@@ -80,9 +80,9 @@ body.theme-dark {
     --typora-cm-builtin: #f3b3f8;
     --typora-cm-meta: #b7b3b3;
     --typora-cm-property: #b8bfc6;
-    /* C/C++：Visual Studio 深色。关键字红，类型青，变量浅蓝。 */
+    /* C/C++：Visual Studio 深色。关键字紫红，类型青，变量浅蓝。 */
     --fh-cpp-comment: #6a9955;
-    --fh-cpp-keyword: #e25870;
+    --fh-cpp-keyword: #e278c8;
     --fh-cpp-string: #ce9178;
     --fh-cpp-number: #b5cea8;
     --fh-cpp-function: #dcdcaa;
