@@ -33,7 +33,7 @@ import { applyTableStableStyle } from "./table-stable";
 import { applyTyporaStyleVars, clearTyporaStyleVars, mergeTyporaStyle } from "./typora-style";
 import { createParenListExtension, refreshParenListDecorations } from "./typora-paren-list";
 import { createAsmHighlightExtension, refreshAsmHighlight, registerAsmPrismLanguages } from "./asm-highlight";
-import { createCppHighlightExtension } from "./cpp-highlight";
+import { createCppHighlightExtension, registerCppPrismLanguages } from "./cpp-highlight";
 import { createSqlHighlightExtension, refreshSqlHighlight, registerSqlPrismLanguages } from "./sql-highlight";
 import { createHtmlStyleExtension, refreshHtmlStyleDecorations } from "./typora-html-style";
 import {
@@ -478,6 +478,7 @@ export default class FormatHotkeysPlugin extends Plugin {
                     : (window as unknown as { Prism?: { languages: Record<string, unknown> } }).Prism;
             if (prism?.languages) {
                 registerAsmPrismLanguages(prism);
+                registerCppPrismLanguages(prism);
                 registerSqlPrismLanguages(prism);
             }
         } catch {

@@ -47,7 +47,7 @@
     --typora-cm-builtin: #30a;
     --typora-cm-meta: #555;
     --typora-cm-property: var(--text-normal);
-    /* C/C++：VS Code Light+ */
+    /* C/C++：Visual Studio 浅色。关键字蓝，类型青，变量另色。 */
     --fh-cpp-comment: #008000;
     --fh-cpp-keyword: #0000ff;
     --fh-cpp-string: #a31515;
@@ -80,7 +80,7 @@ body.theme-dark {
     --typora-cm-builtin: #f3b3f8;
     --typora-cm-meta: #b7b3b3;
     --typora-cm-property: #b8bfc6;
-    /* C/C++：VS Code Dark+ */
+    /* C/C++：Visual Studio 深色。关键字蓝，类型青，变量浅蓝。 */
     --fh-cpp-comment: #6a9955;
     --fh-cpp-keyword: #569cd6;
     --fh-cpp-string: #ce9178;
@@ -849,8 +849,7 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-pro
     color: var(--typora-cm-property);
 }
 
-/* C/C++：覆盖上面的 Typora 色，对齐 VS Code。注释为绿。 */
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp :is(.cm-comment),
+/* C/C++ 阅读视图。源码模式的词类在下面单独写，避免关键字和变量挤成同一个蓝。 */
 body.typora-mode-active .markdown-rendered pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.comment),
 body.typora-mode-active .markdown-rendered pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.comment),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.comment),
@@ -858,7 +857,6 @@ body.typora-mode-active .markdown-source-view.mod-cm6 pre code:is(.language-c, .
     color: var(--fh-cpp-comment);
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp :is(.cm-keyword, .cm-atom, .cm-bool),
 body.typora-mode-active .markdown-rendered pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.keyword, .token.boolean, .token.constant),
 body.typora-mode-active .markdown-rendered pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.keyword, .token.boolean, .token.constant),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.keyword, .token.boolean, .token.constant),
@@ -866,7 +864,6 @@ body.typora-mode-active .markdown-source-view.mod-cm6 pre code:is(.language-c, .
     color: var(--fh-cpp-keyword);
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp :is(.cm-string, .cm-string-2),
 body.typora-mode-active .markdown-rendered pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.string, .token.char),
 body.typora-mode-active .markdown-rendered pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.string, .token.char),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.string, .token.char),
@@ -874,7 +871,6 @@ body.typora-mode-active .markdown-source-view.mod-cm6 pre code:is(.language-c, .
     color: var(--fh-cpp-string);
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp :is(.cm-number),
 body.typora-mode-active .markdown-rendered pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.number),
 body.typora-mode-active .markdown-rendered pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.number),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.number),
@@ -882,7 +878,6 @@ body.typora-mode-active .markdown-source-view.mod-cm6 pre code:is(.language-c, .
     color: var(--fh-cpp-number);
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp :is(.cm-def, .cm-variable-2),
 body.typora-mode-active .markdown-rendered pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.function),
 body.typora-mode-active .markdown-rendered pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.function),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.function),
@@ -890,7 +885,6 @@ body.typora-mode-active .markdown-source-view.mod-cm6 pre code:is(.language-c, .
     color: var(--fh-cpp-function);
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp :is(.cm-type, .cm-builtin, .cm-variable-3, .cm-namespace),
 body.typora-mode-active .markdown-rendered pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.class-name),
 body.typora-mode-active .markdown-rendered pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.class-name),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.class-name),
@@ -898,7 +892,6 @@ body.typora-mode-active .markdown-source-view.mod-cm6 pre code:is(.language-c, .
     color: var(--fh-cpp-type);
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp :is(.cm-variable, .cm-property),
 body.typora-mode-active .markdown-rendered pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.variable),
 body.typora-mode-active .markdown-rendered pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.variable),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.variable),
@@ -906,7 +899,6 @@ body.typora-mode-active .markdown-source-view.mod-cm6 pre code:is(.language-c, .
     color: var(--fh-cpp-variable);
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp :is(.cm-meta, .cm-macro),
 body.typora-mode-active .markdown-rendered pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.macro, .token.directive, .token.property),
 body.typora-mode-active .markdown-rendered pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.macro, .token.directive, .token.property),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.macro, .token.directive, .token.property),
@@ -914,8 +906,6 @@ body.typora-mode-active .markdown-source-view.mod-cm6 pre code:is(.language-c, .
     color: var(--fh-cpp-meta);
 }
 
-/* #include / #define 里的指令名保持预处理色，不要被关键字蓝盖住 */
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp :is(.cm-meta, .cm-macro) :is(.cm-keyword, .cm-atom),
 body.typora-mode-active .markdown-rendered pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.macro, .token.directive, .token.property) :is(.token.keyword, .token.directive),
 body.typora-mode-active .markdown-rendered pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.macro, .token.directive, .token.property) :is(.token.keyword, .token.directive),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.macro, .token.directive, .token.property) :is(.token.keyword, .token.directive),
@@ -923,11 +913,39 @@ body.typora-mode-active .markdown-source-view.mod-cm6 pre code:is(.language-c, .
     color: var(--fh-cpp-meta);
 }
 
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp :is(.cm-operator, .cm-punctuation, .cm-bracket),
 body.typora-mode-active .markdown-rendered pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.operator, .token.punctuation),
 body.typora-mode-active .markdown-rendered pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.operator, .token.punctuation),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) code :is(.token.operator, .token.punctuation),
 body.typora-mode-active .markdown-source-view.mod-cm6 pre code:is(.language-c, .language-cpp, .language-cc, .language-cxx, .language-h, .language-hpp, .language-hh, .language-hxx, .language-c\+\+) :is(.token.operator, .token.punctuation) {
+    color: var(--text-normal);
+}
+
+/* 源码模式：按 Visual Studio 词类上色，盖过编辑器把标识符涂成关键字的颜色 */
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp .fh-cpp-comment {
+    color: var(--fh-cpp-comment);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp .fh-cpp-keyword {
+    color: var(--fh-cpp-keyword);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp .fh-cpp-type {
+    color: var(--fh-cpp-type);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp .fh-cpp-func {
+    color: var(--fh-cpp-function);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp .fh-cpp-var {
+    color: var(--fh-cpp-variable);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp .fh-cpp-string {
+    color: var(--fh-cpp-string);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp .fh-cpp-number {
+    color: var(--fh-cpp-number);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp .fh-cpp-preproc {
+    color: var(--fh-cpp-meta);
+}
+body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp .fh-cpp-plain {
     color: var(--text-normal);
 }
 

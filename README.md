@@ -41,7 +41,7 @@ Obsidian 插件：用快捷键和底部工具栏快速排版 Markdown，并提�
 - 标题颜色默认跟随当前主题（如 Prime：H1 紫、H2 青等），可在配置中自定义
 - 加粗、引用、代码、链接等排版更接近 Typora
 - 正文字体对齐 Typora GitHub（Open Sans + 微软雅黑 UI），红字用 GitHub 危险色并随深色主题切换
-- `c` / `cpp` / `h` / `hpp` 代码块按 VS Code 配色（浅色 Light+、深色 Dark+；注释为绿色，关键字蓝、字符串暖色、类型青、函数黄）
+- `c` / `cpp` / `h` / `hpp` 代码块按 Visual Studio 配色：注释绿，`if`/`for` 等关键字蓝，`int`/`void` 等类型青，函数黄，变量浅蓝
 - `arm` / `asm`、`sql` / `mysql` 等代码块按 Typora CodeMirror 配色高亮（浅色 GitHub、深色 Night；含 MySQL `DELIMITER`、过程体与中文标识符）
 - 表格左右顶满、隔行灰底；浅色对齐 GitHub 主题，深色用略提亮的底与 Night 风格边框
 

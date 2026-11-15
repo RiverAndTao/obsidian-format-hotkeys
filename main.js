@@ -2203,12 +2203,12 @@ for (let i = 0; i <= 31; i++) {
     REGISTERS.add(`w${i}`);
     REGISTERS.add(`x${i}`);
 }
-const decoCache$1 = new Map();
-function tokenMark$1(type) {
-    let deco = decoCache$1.get(type);
+const decoCache$2 = new Map();
+function tokenMark$2(type) {
+    let deco = decoCache$2.get(type);
     if (!deco) {
         deco = view.Decoration.mark({ class: `cm-${type}` });
-        decoCache$1.set(type, deco);
+        decoCache$2.set(type, deco);
     }
     return deco;
 }
@@ -2229,7 +2229,7 @@ function tokenizeLine$1(from, text, builder) {
     const n = text.length;
     const add = (start, end, type) => {
         if (end > start) {
-            builder.add(from + start, from + end, tokenMark$1(type));
+            builder.add(from + start, from + end, tokenMark$2(type));
         }
     };
     while (i < n) {
@@ -2368,9 +2368,32 @@ function registerAsmPrismLanguages(prism) {
     }
 }
 
-/** c / cpp 家族。阅读视图同类语言走 styles.css 里的 language-* */
+/** c / cpp 家族。阅读视图用同一套 Prism 语法。 */
 const CPP_LANGS = new Set(["c", "cpp", "c++", "cc", "cxx", "h", "hpp", "hh", "hxx"]);
+/** 控制流、声明说明符。蓝色，和类型、变量分开。 */
+const KEYWORDS$1 = new Set(("alignas alignof and and_eq asm bitand bitor break case catch class co_await co_return co_yield " +
+    "compl concept const const_cast constexpr consteval constinit continue decltype default delete do " +
+    "dynamic_cast else enum explicit export extern for friend goto if import inline module mutable " +
+    "namespace new noexcept not not_eq nullptr operator or or_eq private protected public register " +
+    "reinterpret_cast requires return sizeof static static_assert static_cast struct switch template " +
+    "this thread_local throw try typedef typeid typename union using virtual volatile while xor xor_eq " +
+    "true false").split(/\s+/));
+/** 内置类型。青色，不跟 if/for 混成同一个蓝。 */
+const TYPES$1 = new Set("void bool char wchar_t char8_t char16_t char32_t short int long float double signed unsigned auto _Bool".split(/\s+/));
+/** class / struct / enum / union 后面的名字按类型上色。 */
+const TYPE_INTRODUCERS = new Set(["class", "struct", "enum", "union"]);
+const NUMBER_RE$1 = /^(?:0[xX][0-9a-fA-F]+(?:'[0-9a-fA-F]+)*|0[bB][01]+(?:'[01]+)*|(?:\d+(?:'\d+)*)\.(?:\d+(?:'\d+)*)?(?:[eE][+-]?\d+)?|\.\d+(?:'\d+)*(?:[eE][+-]?\d+)?|\d+(?:'\d+)*(?:[eE][+-]?\d+)?)(?:[uU][lL]{1,2}|[lL]{1,2}[uU]?|[uUlLzZfF])?/;
+const OP_RE = /^(?:<<=|>>=|\+\+|--|->|::|<<|>>|<=|>=|==|!=|&&|\|\||\+=|-=|\*=|\/=|%=|&=|\|=|\^=|[+\-*/%&|^~!=<>?:.,;()[\]{}#])/;
+const decoCache$1 = new Map();
 const cppLine = view.Decoration.line({ class: "fh-cpp" });
+function tokenMark$1(cls) {
+    let deco = decoCache$1.get(cls);
+    if (!deco) {
+        deco = view.Decoration.mark({ class: cls });
+        decoCache$1.set(cls, deco);
+    }
+    return deco;
+}
 function languageId(info) {
     var _a;
     let lang = info.trim().toLowerCase();
@@ -2386,7 +2409,6 @@ function languageId(info) {
 function isCppLang(info) {
     return CPP_LANGS.has(languageId(info));
 }
-/** 行首围栏。返回标记字符和 info string；不是围栏则为 null。 */
 function fenceAt(text) {
     const match = /^(?: {0,3}|\t)(```+|~~~+)(.*)$/.exec(text);
     if (!match) {
@@ -2396,24 +2418,236 @@ function fenceAt(text) {
     const char = marker[0] === "~" ? "~" : "`";
     return { char, lang: match[2].trim() };
 }
+function skipSpace(text, i) {
+    while (i < text.length && (text[i] === " " || text[i] === "\t")) {
+        i++;
+    }
+    return i;
+}
+function readIdent(text, i) {
+    var _a;
+    if (!/[A-Za-z_]/.test((_a = text[i]) !== null && _a !== void 0 ? _a : "")) {
+        return 0;
+    }
+    let j = i + 1;
+    while (j < text.length && /[A-Za-z0-9_]/.test(text[j])) {
+        j++;
+    }
+    return j - i;
+}
+function isCall(text, i) {
+    const j = skipSpace(text, i);
+    return text[j] === "(";
+}
+function matchString(text, i) {
+    const slice = text.slice(i);
+    const prefixed = /^(?:u8|u|U|L)/.exec(slice);
+    const prefixLen = prefixed ? prefixed[0].length : 0;
+    const rest = slice.slice(prefixLen);
+    if (rest.startsWith('R"')) {
+        const delimMatch = /^R"([^()\\\s]{0,16})\(/.exec(rest);
+        if (!delimMatch) {
+            return null;
+        }
+        const delim = delimMatch[1];
+        const contentStart = i + prefixLen + delimMatch[0].length;
+        const endMark = `)${delim}"`;
+        const close = text.indexOf(endMark, contentStart);
+        if (close < 0) {
+            return { end: text.length, rawDelim: delim };
+        }
+        return { end: close + endMark.length, rawDelim: null };
+    }
+    if (rest.startsWith('"') || rest.startsWith("'")) {
+        const quote = rest[0];
+        let j = i + prefixLen + 1;
+        while (j < text.length) {
+            if (text[j] === "\\") {
+                j += 2;
+                continue;
+            }
+            if (text[j] === quote) {
+                return { end: j + 1, rawDelim: null };
+            }
+            j++;
+        }
+        return { end: text.length, rawDelim: null };
+    }
+    return null;
+}
+/**
+ * 按 Visual Studio 的词类切一行。
+ * 关键字蓝、内置类型青、函数黄、其余标识符浅蓝。
+ */
+function scanCppLine(text, state) {
+    var _a;
+    const pieces = [];
+    const next = { blockComment: state.blockComment, rawDelim: state.rawDelim };
+    let i = 0;
+    let expectType = false;
+    const push = (from, to, cls) => {
+        if (to > from) {
+            pieces.push({ from, to, cls });
+        }
+    };
+    if (next.rawDelim !== null) {
+        const endMark = `)${next.rawDelim}"`;
+        const close = text.indexOf(endMark);
+        if (close < 0) {
+            push(0, text.length, "fh-cpp-string");
+            return { pieces, state: next };
+        }
+        push(0, close + endMark.length, "fh-cpp-string");
+        i = close + endMark.length;
+        next.rawDelim = null;
+    }
+    if (next.blockComment) {
+        const close = text.indexOf("*/", i);
+        if (close < 0) {
+            push(i, text.length, "fh-cpp-comment");
+            return { pieces, state: next };
+        }
+        push(i, close + 2, "fh-cpp-comment");
+        i = close + 2;
+        next.blockComment = false;
+    }
+    if (text.slice(0, i).trim() === "") {
+        const hash = skipSpace(text, i);
+        if (text[hash] === "#") {
+            let j = skipSpace(text, hash + 1);
+            const len = readIdent(text, j);
+            const name = len ? text.slice(j, j + len) : "";
+            const end = len ? j + len : hash + 1;
+            push(hash, end, "fh-cpp-preproc");
+            i = end;
+            if (name === "include" || name === "include_next") {
+                const angle = skipSpace(text, i);
+                if (text[angle] === "<") {
+                    const close = text.indexOf(">", angle + 1);
+                    const to = close < 0 ? text.length : close + 1;
+                    push(angle, to, "fh-cpp-string");
+                    i = to;
+                }
+            }
+        }
+    }
+    while (i < text.length) {
+        const ch = text[i];
+        if (ch === " " || ch === "\t") {
+            i++;
+            continue;
+        }
+        if (ch === "/" && text[i + 1] === "/") {
+            push(i, text.length, "fh-cpp-comment");
+            break;
+        }
+        if (ch === "/" && text[i + 1] === "*") {
+            const close = text.indexOf("*/", i + 2);
+            if (close < 0) {
+                push(i, text.length, "fh-cpp-comment");
+                next.blockComment = true;
+                break;
+            }
+            push(i, close + 2, "fh-cpp-comment");
+            i = close + 2;
+            continue;
+        }
+        const str = matchString(text, i);
+        if (str && str.end > i) {
+            push(i, str.end, "fh-cpp-string");
+            next.rawDelim = str.rawDelim;
+            i = str.end;
+            expectType = false;
+            if (str.rawDelim !== null) {
+                break;
+            }
+            continue;
+        }
+        if (ch === "." && /\d/.test((_a = text[i + 1]) !== null && _a !== void 0 ? _a : "")) {
+            const num = NUMBER_RE$1.exec(text.slice(i));
+            if (num) {
+                push(i, i + num[0].length, "fh-cpp-number");
+                i += num[0].length;
+                expectType = false;
+                continue;
+            }
+        }
+        if (/\d/.test(ch)) {
+            const num = NUMBER_RE$1.exec(text.slice(i));
+            if (num) {
+                push(i, i + num[0].length, "fh-cpp-number");
+                i += num[0].length;
+                expectType = false;
+                continue;
+            }
+        }
+        const identLen = readIdent(text, i);
+        if (identLen) {
+            const word = text.slice(i, i + identLen);
+            let cls;
+            if (TYPES$1.has(word)) {
+                cls = "fh-cpp-type";
+                expectType = false;
+            }
+            else if (KEYWORDS$1.has(word)) {
+                cls = "fh-cpp-keyword";
+                expectType = TYPE_INTRODUCERS.has(word);
+            }
+            else if (expectType) {
+                cls = "fh-cpp-type";
+                expectType = false;
+            }
+            else if (isCall(text, i + identLen)) {
+                cls = "fh-cpp-func";
+            }
+            else {
+                cls = "fh-cpp-var";
+            }
+            push(i, i + identLen, cls);
+            i += identLen;
+            continue;
+        }
+        const op = OP_RE.exec(text.slice(i));
+        if (op) {
+            push(i, i + op[0].length, "fh-cpp-plain");
+            i += op[0].length;
+            expectType = false;
+            continue;
+        }
+        push(i, i + 1, "fh-cpp-plain");
+        i++;
+        expectType = false;
+    }
+    return { pieces, state: next };
+}
 function buildDecorations$2(view) {
     const builder = new state.RangeSetBuilder();
     const doc = view.state.doc;
     let fence = null;
+    let scan = { blockComment: false, rawDelim: null };
     for (let lineNo = 1; lineNo <= doc.lines; lineNo++) {
         const line = doc.line(lineNo);
         const found = fenceAt(line.text);
         if (fence) {
             if (found && found.char === fence.char && found.lang === "") {
                 fence = null;
+                scan = { blockComment: false, rawDelim: null };
+                continue;
             }
-            else if (isCppLang(fence.lang)) {
-                builder.add(line.from, line.from, cppLine);
+            if (!isCppLang(fence.lang)) {
+                continue;
+            }
+            builder.add(line.from, line.from, cppLine);
+            const scanned = scanCppLine(line.text, scan);
+            scan = scanned.state;
+            for (const piece of scanned.pieces) {
+                builder.add(line.from + piece.from, line.from + piece.to, tokenMark$1(piece.cls));
             }
             continue;
         }
         if (found) {
             fence = found;
+            scan = { blockComment: false, rawDelim: null };
         }
     }
     return builder.finish();
@@ -2430,9 +2664,46 @@ const cppHighlightPlugin = view.ViewPlugin.fromClass(class {
 }, {
     decorations: (value) => value.decorations,
 });
-/** 源码模式：给 C/C++ 代码行加上 fh-cpp，便于按 VS Code 配色覆盖。 */
+/** 源码模式：自己切词，避免 Obsidian 把关键字和变量涂成同一个蓝。 */
 function createCppHighlightExtension() {
     return cppHighlightPlugin;
+}
+function wordPattern(words) {
+    const body = [...words].sort((a, b) => b.length - a.length).join("|");
+    return new RegExp(`\\b(?:${body})\\b`);
+}
+/** 阅读视图：覆盖 Prism 的 cpp，把类型、关键字、函数、变量分开。 */
+function registerCppPrismLanguages(prism) {
+    const grammar = {
+        comment: [
+            { pattern: /\/\*[\s\S]*?(?:\*\/|$)/, greedy: true },
+            { pattern: /(^|[^\\])\/\/.*/, lookbehind: true, greedy: true },
+        ],
+        string: {
+            pattern: /(?:u8|u|U|L)?(?:R"(?:[^()\\\r\n]{0,16})\([\s\S]*?\)\1"|"(?:\\[\s\S]|[^"\\\r\n])*"|'(?:\\[\s\S]|[^'\\\r\n])*')/,
+            greedy: true,
+        },
+        macro: {
+            pattern: /(^[ \t]*)#[ \t]*[a-zA-Z_]\w*/m,
+            lookbehind: true,
+            alias: "property",
+        },
+        number: /\b(?:0x[\da-f]+|0b[01]+|(?:\d+\.\d*|\.\d+)(?:e[+-]?\d+)?|\d+(?:e[+-]?\d+)?)(?:u|l|ll|z|f)?\b/i,
+        keyword: wordPattern(KEYWORDS$1),
+        "class-name": {
+            pattern: /(\b(?:class|struct|enum|union)\s+)\w+\b/,
+            lookbehind: true,
+        },
+        type: {
+            pattern: wordPattern(TYPES$1),
+            alias: "class-name",
+        },
+        function: /\b[A-Za-z_]\w*(?=\s*\()/,
+        variable: /\b[A-Za-z_]\w*\b/,
+    };
+    for (const lang of CPP_LANGS) {
+        prism.languages[lang] = grammar;
+    }
 }
 
 const SQL_LANGS = new Set([
@@ -4203,6 +4474,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                     : window.Prism;
                 if (prism === null || prism === void 0 ? void 0 : prism.languages) {
                     registerAsmPrismLanguages(prism);
+                    registerCppPrismLanguages(prism);
                     registerSqlPrismLanguages(prism);
                 }
             }
