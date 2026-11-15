@@ -2477,7 +2477,7 @@ function matchString(text, i) {
 }
 /**
  * 按 Visual Studio 的词类切一行。
- * 关键字紫红、内置类型青、函数黄、其余标识符浅蓝。
+ * 关键字红、内置类型青、函数黄、其余标识符浅蓝。
  */
 function scanCppLine(text, state) {
     var _a;

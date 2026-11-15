@@ -154,7 +154,7 @@ function matchString(text: string, i: number): { end: number; rawDelim: string |
 
 /**
  * 按 Visual Studio 的词类切一行。
- * 关键字紫红、内置类型青、函数黄、其余标识符浅蓝。
+ * 关键字红、内置类型青、函数黄、其余标识符浅蓝。
  */
 export function scanCppLine(text: string, state: ScanState): { pieces: Piece[]; state: ScanState } {
     const pieces: Piece[] = [];
