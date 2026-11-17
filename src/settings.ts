@@ -18,7 +18,9 @@ export type ToolbarButtonId =
     | "flatten-to-bold"
     | "remove-red"
     | "red-underline"
-    | "red-wavy";
+    | "red-wavy"
+    | "to-fraction"
+    | "annotate";
 
 /** 全部可配置到工具栏的按钮（不含已改快捷键的「、」） */
 export const ALL_TOOLBAR_BUTTONS: ToolbarButtonId[] = [
@@ -26,6 +28,7 @@ export const ALL_TOOLBAR_BUTTONS: ToolbarButtonId[] = [
     "typora-config",
     "code-language",
     "callout",
+    "annotate",
     "remove-callout",
     "bold",
     "flatten-to-bold",
@@ -37,6 +40,7 @@ export const ALL_TOOLBAR_BUTTONS: ToolbarButtonId[] = [
     "block-math-to-inline",
     "block-math-to-inline-join",
     "normalize-punctuation",
+    "to-fraction",
 ];
 
 export interface FormatHotkeysSettings {
@@ -54,20 +58,22 @@ export interface FormatHotkeysSettings {
 }
 
 /** 当前布局版本：有快捷键的按钮移出工具栏，默认只保留常用项 */
-export const TOOLBAR_LAYOUT_VERSION = 2;
+export const TOOLBAR_LAYOUT_VERSION = 4;
 
 export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
     defaultCodeLanguage: "",
-    codeLanguages: ["java", "python", "javascript", "typescript", "bash", "sql", ""],
+    codeLanguages: ["java", "python", "javascript", "typescript", "bash", "sql", "jsp", ""],
     // 默认精简：模式 / 配置 / 语言 / 提示 / 常用样式与转换；其余进「更多」
     toolbarButtonOrder: [
         "typora-mode",
         "typora-config",
         "code-language",
         "callout",
+        "annotate",
         "flatten-to-bold",
         "red-underline",
         "table-to-md",
+        "to-fraction",
     ],
     toolbarLayoutVersion: TOOLBAR_LAYOUT_VERSION,
     typoraMode: false,
@@ -90,8 +96,10 @@ export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
     "red-underline": "红+下划线",
     "red-wavy": "红+波浪线",
     callout: "提示",
+    annotate: "批注",
     "remove-callout": "取消提示",
     "table-to-md": "表格转MD",
+    "to-fraction": "转分数",
 };
 
 export function formatLanguageLabel(language: string): string {

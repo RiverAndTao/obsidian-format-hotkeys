@@ -17,6 +17,7 @@ import {
     removeRedInSelection,
     toggleRedUnderline,
     toggleRedWavy,
+    convertSelectionToFraction,
 } from "./editor-utils";
 import {
     ALL_TOOLBAR_BUTTONS,
@@ -35,6 +36,16 @@ import { createParenListExtension, refreshParenListDecorations } from "./typora-
 import { createAsmHighlightExtension, refreshAsmHighlight, registerAsmPrismLanguages } from "./asm-highlight";
 import { createCppHighlightExtension, registerCppPrismLanguages } from "./cpp-highlight";
 import { createSqlHighlightExtension, refreshSqlHighlight, registerSqlPrismLanguages } from "./sql-highlight";
+import { createJspHighlightExtension, registerJspPrismLanguages } from "./jsp-highlight";
+import {
+    addAnnotationMenuItems,
+    createAnnotationExtension,
+    destroyAnnotationTooltip,
+    editAnnotationAtCursor,
+    installAnnotationHover,
+    promptAnnotation,
+    removeAnnotationAtCursor,
+} from "./annotation";
 import { createHtmlStyleExtension, refreshHtmlStyleDecorations } from "./typora-html-style";
 import {
     attachTableStripeObserver,
@@ -193,6 +204,31 @@ export default class FormatHotkeysPlugin extends Plugin {
         });
 
         this.addCommand({
+            id: "to-fraction",
+            name: "转为 LaTeX 分数",
+            editorCallback: (editor: Editor) => convertSelectionToFraction(editor),
+        });
+
+        this.addCommand({
+            id: "add-annotation",
+            name: "高亮并批注",
+            editorCallback: (editor: Editor) => promptAnnotation(this.app, editor),
+            hotkeys: [{ modifiers: ["Mod", "Alt"], key: "h" }],
+        });
+
+        this.addCommand({
+            id: "edit-annotation",
+            name: "编辑批注",
+            editorCallback: (editor: Editor) => editAnnotationAtCursor(this.app, editor),
+        });
+
+        this.addCommand({
+            id: "remove-annotation",
+            name: "移除批注",
+            editorCallback: (editor: Editor) => removeAnnotationAtCursor(editor),
+        });
+
+        this.addCommand({
             id: "copy-block-link",
             name: "复制块链接",
             editorCallback: (editor, view) => {
@@ -231,6 +267,8 @@ export default class FormatHotkeysPlugin extends Plugin {
         this.registerEditorExtension(createAsmHighlightExtension());
         this.registerEditorExtension(createCppHighlightExtension());
         this.registerEditorExtension(createSqlHighlightExtension());
+        this.registerEditorExtension(createJspHighlightExtension());
+        this.registerEditorExtension(createAnnotationExtension());
         this.registerEditorExtension(createHtmlStyleExtension());
         void this.registerPrismExtraLanguages();
 
@@ -244,7 +282,9 @@ export default class FormatHotkeysPlugin extends Plugin {
         this.registerEvent(this.app.workspace.on("file-open", (file) => this.restoreState(file)));
         this.registerEvent(
             this.app.workspace.on("editor-menu", (menu, editor, view) => {
+                addAnnotationMenuItems(menu, this.app, editor);
                 if (!view.file) return;
+                menu.addSeparator();
                 addBlockLinkMenuItems(menu, this.app, editor, view.file);
             })
         );
@@ -276,6 +316,7 @@ export default class FormatHotkeysPlugin extends Plugin {
         });
         this.restoreState();
 
+        installAnnotationHover(this);
         this.applyTyporaMode();
         this.applyTableStable();
         this.setupTableStripeRefresh();
@@ -283,6 +324,7 @@ export default class FormatHotkeysPlugin extends Plugin {
     }
 
     onunload(): void {
+        destroyAnnotationTooltip();
         this.writeDb();
         applyTableStableStyle(false);
 
@@ -480,6 +522,7 @@ export default class FormatHotkeysPlugin extends Plugin {
                 registerAsmPrismLanguages(prism);
                 registerCppPrismLanguages(prism);
                 registerSqlPrismLanguages(prism);
+                registerJspPrismLanguages(prism);
             }
         } catch {
             // Prism 不可用时源码视图仍由 CodeMirror 装饰高亮
@@ -509,13 +552,12 @@ export default class FormatHotkeysPlugin extends Plugin {
 
         const validIds = new Set<ToolbarButtonId>(ALL_TOOLBAR_BUTTONS);
 
-        // 布局大改时一次性切到精简默认（未显示的进「更多」）
-        const needsPersist = layoutVersion < TOOLBAR_LAYOUT_VERSION;
-        if (needsPersist) {
-            this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
-        } else if (
+        // 版本 < 2：一次性切到精简默认。之后的版本只追加新按钮，避免打乱已有排序。
+        const previousLayout = layoutVersion;
+        if (
             !Array.isArray(this.settings.toolbarButtonOrder) ||
-            this.settings.toolbarButtonOrder.length === 0
+            this.settings.toolbarButtonOrder.length === 0 ||
+            previousLayout < 2
         ) {
             this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
         } else {
@@ -524,10 +566,19 @@ export default class FormatHotkeysPlugin extends Plugin {
             );
             if (this.settings.toolbarButtonOrder.length === 0) {
                 this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
+            } else if (previousLayout < TOOLBAR_LAYOUT_VERSION) {
+                for (const id of ["to-fraction", "annotate"] as ToolbarButtonId[]) {
+                    if (!this.settings.toolbarButtonOrder.includes(id)) {
+                        this.settings.toolbarButtonOrder.push(id);
+                    }
+                }
             }
         }
+        if (previousLayout < TOOLBAR_LAYOUT_VERSION && !this.settings.codeLanguages.includes("jsp")) {
+            this.settings.codeLanguages.push("jsp");
+        }
         this.settings.toolbarLayoutVersion = TOOLBAR_LAYOUT_VERSION;
-        if (needsPersist) {
+        if (previousLayout < TOOLBAR_LAYOUT_VERSION) {
             await this.saveData(this.settings);
         }
     }

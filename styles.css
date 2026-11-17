@@ -56,6 +56,15 @@
     --fh-cpp-type: #267f99;
     --fh-cpp-variable: #001080;
     --fh-cpp-meta: #af00db;
+    /* JSP：标签沿用 VS HTML 的棕，属性偏红，EL 用函数黄。 */
+    --fh-jsp-tag: #800000;
+    --fh-jsp-attr: #e50000;
+    --fh-jsp-el: #795e26;
+    --fh-anno-yellow: rgba(255, 208, 0, 0.48);
+    --fh-anno-green: rgba(72, 187, 120, 0.4);
+    --fh-anno-blue: rgba(88, 156, 246, 0.38);
+    --fh-anno-pink: rgba(236, 120, 168, 0.36);
+    --fh-anno-orange: rgba(242, 153, 74, 0.42);
 }
 
 body.theme-dark {
@@ -89,6 +98,14 @@ body.theme-dark {
     --fh-cpp-type: #4ec9b0;
     --fh-cpp-variable: #9cdcfe;
     --fh-cpp-meta: #c586c0;
+    --fh-jsp-tag: #569cd6;
+    --fh-jsp-attr: #9cdcfe;
+    --fh-jsp-el: #dcdcaa;
+    --fh-anno-yellow: rgba(255, 196, 0, 0.32);
+    --fh-anno-green: rgba(72, 187, 120, 0.28);
+    --fh-anno-blue: rgba(88, 156, 246, 0.28);
+    --fh-anno-pink: rgba(236, 120, 168, 0.28);
+    --fh-anno-orange: rgba(242, 153, 74, 0.3);
 }
 
 /* ============================================================
@@ -949,6 +966,85 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.fh-cpp .fh-cpp-pl
     color: var(--text-normal);
 }
 
+/* JSP：源码模式按词类上色。阅读视图用 Prism 的 token。 */
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-comment {
+    color: var(--fh-cpp-comment);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-keyword {
+    color: var(--fh-cpp-keyword);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-type {
+    color: var(--fh-cpp-type);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-func {
+    color: var(--fh-cpp-function);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-var {
+    color: var(--fh-cpp-variable);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-string {
+    color: var(--fh-cpp-string);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-number {
+    color: var(--fh-cpp-number);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-tag {
+    color: var(--fh-jsp-tag);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-attr {
+    color: var(--fh-jsp-attr);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-delim {
+    color: var(--fh-cpp-meta);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-el {
+    color: var(--fh-jsp-el);
+}
+.markdown-source-view.mod-cm6 .cm-line.fh-jsp .fh-jsp-plain {
+    color: var(--text-normal);
+}
+
+:is(.markdown-rendered, .markdown-source-view) pre:is(.language-jsp, .language-jspx) code :is(.token.comment),
+:is(.markdown-rendered, .markdown-source-view) pre code:is(.language-jsp, .language-jspx) :is(.token.comment) {
+    color: var(--fh-cpp-comment);
+}
+:is(.markdown-rendered, .markdown-source-view) pre:is(.language-jsp, .language-jspx) code :is(.token.keyword, .token.boolean),
+:is(.markdown-rendered, .markdown-source-view) pre code:is(.language-jsp, .language-jspx) :is(.token.keyword, .token.boolean) {
+    color: var(--fh-cpp-keyword);
+}
+:is(.markdown-rendered, .markdown-source-view) pre:is(.language-jsp, .language-jspx) code :is(.token.string, .token.entity),
+:is(.markdown-rendered, .markdown-source-view) pre code:is(.language-jsp, .language-jspx) :is(.token.string, .token.entity) {
+    color: var(--fh-cpp-string);
+}
+:is(.markdown-rendered, .markdown-source-view) pre:is(.language-jsp, .language-jspx) code :is(.token.number),
+:is(.markdown-rendered, .markdown-source-view) pre code:is(.language-jsp, .language-jspx) :is(.token.number) {
+    color: var(--fh-cpp-number);
+}
+:is(.markdown-rendered, .markdown-source-view) pre:is(.language-jsp, .language-jspx) code :is(.token.function),
+:is(.markdown-rendered, .markdown-source-view) pre code:is(.language-jsp, .language-jspx) :is(.token.function) {
+    color: var(--fh-cpp-function);
+}
+:is(.markdown-rendered, .markdown-source-view) pre:is(.language-jsp, .language-jspx) code :is(.token.class-name),
+:is(.markdown-rendered, .markdown-source-view) pre code:is(.language-jsp, .language-jspx) :is(.token.class-name) {
+    color: var(--fh-cpp-type);
+}
+:is(.markdown-rendered, .markdown-source-view) pre:is(.language-jsp, .language-jspx) code :is(.token.tag, .token.directive),
+:is(.markdown-rendered, .markdown-source-view) pre code:is(.language-jsp, .language-jspx) :is(.token.tag, .token.directive) {
+    color: var(--fh-jsp-tag);
+}
+:is(.markdown-rendered, .markdown-source-view) pre:is(.language-jsp, .language-jspx) code :is(.token.attr-name),
+:is(.markdown-rendered, .markdown-source-view) pre code:is(.language-jsp, .language-jspx) :is(.token.attr-name) {
+    color: var(--fh-jsp-attr);
+}
+:is(.markdown-rendered, .markdown-source-view) pre:is(.language-jsp, .language-jspx) code :is(.token.el),
+:is(.markdown-rendered, .markdown-source-view) pre code:is(.language-jsp, .language-jspx) :is(.token.el) {
+    color: var(--fh-jsp-el);
+}
+:is(.markdown-rendered, .markdown-source-view) pre:is(.language-jsp, .language-jspx) code :is(.token.punctuation),
+:is(.markdown-rendered, .markdown-source-view) pre code:is(.language-jsp, .language-jspx) :is(.token.punctuation) {
+    color: var(--fh-cpp-meta);
+}
+
 /* =====================================================
    第九部分：数学公式
    ===================================================== */
@@ -1627,4 +1723,142 @@ body.typora-mode-active .markdown-source-view.mod-cm6
 body.typora-mode-active .markdown-source-view.mod-cm6
 :is(.image-embed, .internal-embed.media-embed.image-embed) {
     max-width: 100%;
+}
+
+/* 高亮批注：源码里藏起标签，正文留高亮；悬停弹出解释 */
+.markdown-source-view .fh-anno,
+.markdown-preview-view .fh-anno,
+.markdown-rendered .fh-anno {
+    background-color: var(--fh-anno-yellow);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
+.markdown-source-view .fh-anno[data-color="green"],
+.markdown-preview-view .fh-anno[data-color="green"],
+.markdown-rendered .fh-anno[data-color="green"] {
+    background-color: var(--fh-anno-green);
+}
+
+.markdown-source-view .fh-anno[data-color="blue"],
+.markdown-preview-view .fh-anno[data-color="blue"],
+.markdown-rendered .fh-anno[data-color="blue"] {
+    background-color: var(--fh-anno-blue);
+}
+
+.markdown-source-view .fh-anno[data-color="pink"],
+.markdown-preview-view .fh-anno[data-color="pink"],
+.markdown-rendered .fh-anno[data-color="pink"] {
+    background-color: var(--fh-anno-pink);
+}
+
+.markdown-source-view .fh-anno[data-color="orange"],
+.markdown-preview-view .fh-anno[data-color="orange"],
+.markdown-rendered .fh-anno[data-color="orange"] {
+    background-color: var(--fh-anno-orange);
+}
+
+.markdown-source-view .fh-anno[data-comment],
+.markdown-preview-view .fh-anno[data-comment],
+.markdown-rendered .fh-anno[data-comment] {
+    text-decoration: underline dotted rgba(176, 122, 0, 0.95);
+    text-underline-offset: 2px;
+    cursor: help;
+}
+
+.markdown-source-view.mod-cm6 .fh-anno-tag {
+    display: none !important;
+}
+
+.fh-anno-tip {
+    position: fixed;
+    z-index: 10000;
+    max-width: min(360px, calc(100vw - 16px));
+    padding: 8px 10px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-s);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.fh-anno-tip-label {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-bottom: 4px;
+}
+
+.fh-anno-tip-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 240px;
+    overflow: auto;
+}
+
+.fh-anno-tip-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.fh-anno-tip-btn {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    cursor: pointer;
+}
+
+.fh-anno-tip-btn:hover {
+    background: var(--background-modifier-hover);
+}
+
+.fh-anno-modal-desc {
+    color: var(--text-muted);
+    margin-top: 0;
+}
+
+.fh-anno-colors {
+    display: flex;
+    gap: 8px;
+    margin: 8px 0 12px;
+}
+
+.fh-anno-swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    padding: 0;
+    cursor: pointer;
+}
+
+.fh-anno-swatch.is-active {
+    border-color: var(--text-normal);
+}
+
+.fh-anno-modal textarea,
+.fh-anno-input {
+    width: 100%;
+    min-height: 120px;
+    resize: vertical;
+}
+
+.fh-anno-modal-actions {
+    display: flex;
+    align-items: center;
+    margin-top: 12px;
+}
+
+.fh-anno-modal-actions-right {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
 }

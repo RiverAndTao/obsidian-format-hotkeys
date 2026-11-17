@@ -54,6 +54,349 @@ typeof SuppressedError === "function" ? SuppressedError : function (error, suppr
     return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
 };
 
+/** 把选区里的 a/b 转成 LaTeX \frac{a}{b} */
+const SLASH = /[/／]/;
+function hasSlash(text) {
+    return SLASH.test(text);
+}
+function isOpenGroup(ch) {
+    return ch === "(" || ch === "（" || ch === "{" || ch === "[";
+}
+function isCloseGroup(ch) {
+    return ch === ")" || ch === "）" || ch === "}" || ch === "]";
+}
+function isOpenParen(ch) {
+    return ch === "(" || ch === "（";
+}
+function isCloseParen(ch) {
+    return ch === ")" || ch === "）";
+}
+function groupDelta(ch) {
+    if (isOpenGroup(ch))
+        return 1;
+    if (isCloseGroup(ch))
+        return -1;
+    return 0;
+}
+function isMathExpr(text) {
+    const core = text.trim();
+    if (!core)
+        return false;
+    if (/[\u4e00-\u9fff，。；：！？、]/.test(core))
+        return false;
+    if (/[A-Za-z]{2,}\s+[A-Za-z]/.test(core))
+        return false;
+    if (/[a-z][a-z0-9+.-]*:\/\//i.test(core))
+        return false;
+    return /^[A-Za-z0-9\\_^{}()（）[\]+\-*/.=<>|,'\s／]+$/.test(core);
+}
+function urlSpan(text, slash) {
+    let start = slash;
+    while (start > 0 && !/\s/.test(text[start - 1]))
+        start--;
+    let end = slash;
+    while (end < text.length && !/\s/.test(text[end]))
+        end++;
+    if (/[a-z][a-z0-9+.-]*:\/\//i.test(text.slice(start, end))) {
+        return { start, end };
+    }
+    return null;
+}
+function dateSpan(text, start, end) {
+    let s = start;
+    let e = end;
+    while (s > 0 && /[\d/]/.test(text[s - 1]))
+        s--;
+    while (e < text.length && /[\d/]/.test(text[e]))
+        e++;
+    const chunk = text.slice(s, e);
+    if (/^\d{4}\/\d{1,2}(\/\d{1,2})?$/.test(chunk) || /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(chunk)) {
+        return { start: s, end: e };
+    }
+    return null;
+}
+function stripOuterParens(text) {
+    var _a, _b;
+    let core = text.trim();
+    while (isOpenParen((_a = core[0]) !== null && _a !== void 0 ? _a : "") && isCloseParen((_b = core[core.length - 1]) !== null && _b !== void 0 ? _b : "")) {
+        let depth = 0;
+        let wrapsAll = true;
+        for (let i = 0; i < core.length; i++) {
+            if (isOpenParen(core[i]))
+                depth++;
+            else if (isCloseParen(core[i])) {
+                depth--;
+                if (depth === 0 && i < core.length - 1) {
+                    wrapsAll = false;
+                    break;
+                }
+            }
+        }
+        if (!wrapsAll || depth !== 0)
+            break;
+        core = core.slice(1, -1).trim();
+    }
+    return core;
+}
+function hasBinaryPlusMinus(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length; i++) {
+        depth += groupDelta(expr[i]);
+        if (depth < 0)
+            depth = 0;
+        if (depth !== 0 || (expr[i] !== "+" && expr[i] !== "-"))
+            continue;
+        const prev = expr.slice(0, i).trimEnd().slice(-1);
+        if (prev && !/[(\[{\uFF08+\-*/=,／]/.test(prev))
+            return true;
+    }
+    return false;
+}
+function splitTopLevelSlashes(text) {
+    const parts = [];
+    let depth = 0;
+    let start = 0;
+    let found = false;
+    for (let i = 0; i < text.length; i++) {
+        depth += groupDelta(text[i]);
+        if (depth < 0)
+            depth = 0;
+        if (depth !== 0 || (text[i] !== "/" && text[i] !== "／"))
+            continue;
+        if (urlSpan(text, i))
+            return null;
+        parts.push(text.slice(start, i));
+        start = i + 1;
+        found = true;
+    }
+    if (!found)
+        return null;
+    parts.push(text.slice(start));
+    if (parts.some((part) => part.trim() === ""))
+        return null;
+    return parts;
+}
+function tryPureMathFraction(text, asSelection) {
+    var _a, _b, _c, _d;
+    const lead = (_b = (_a = text.match(/^[ \t]*/)) === null || _a === void 0 ? void 0 : _a[0]) !== null && _b !== void 0 ? _b : "";
+    const trail = (_d = (_c = text.match(/[ \t]*$/)) === null || _c === void 0 ? void 0 : _c[0]) !== null && _d !== void 0 ? _d : "";
+    if (lead.length + trail.length >= text.length)
+        return null;
+    const core = text.slice(lead.length, text.length - trail.length);
+    if (core.includes("\n") || !isMathExpr(core) || dateSpan(core, 0, core.length))
+        return null;
+    const parts = splitTopLevelSlashes(core);
+    if (!parts)
+        return null;
+    if (parts.length > 2 && parts.some(hasBinaryPlusMinus))
+        return null;
+    if (parts.length === 2 &&
+        !asSelection &&
+        (hasBinaryPlusMinus(parts[0]) || hasBinaryPlusMinus(parts[1]))) {
+        return null;
+    }
+    let acc = stripOuterParens(parts[0].trim());
+    for (let i = 1; i < parts.length; i++) {
+        const den = stripOuterParens(parts[i].trim());
+        if (!acc || !den)
+            return null;
+        acc = `\\frac{${convertInner(acc)}}{${convertInner(den)}}`;
+    }
+    return lead + acc + trail;
+}
+function matchingBack(text, closeIndex, openCh, closeCh) {
+    let depth = 0;
+    for (let i = closeIndex; i >= 0; i--) {
+        if (closeCh(text[i]))
+            depth++;
+        else if (openCh(text[i])) {
+            depth--;
+            if (depth === 0)
+                return i;
+        }
+    }
+    return -1;
+}
+function matchingForward(text, openIndex, openCh, closeCh) {
+    let depth = 0;
+    for (let i = openIndex; i < text.length; i++) {
+        if (openCh(text[i]))
+            depth++;
+        else if (closeCh(text[i])) {
+            depth--;
+            if (depth === 0)
+                return i;
+        }
+    }
+    return -1;
+}
+function isUnaryMinus(text, index) {
+    if (text[index] !== "-")
+        return false;
+    if (index === 0)
+        return true;
+    const prev = text[index - 1];
+    return /[\s(\[{\uFF08+\-*/=,／]/.test(prev);
+}
+function readAtomBackward(text, slash) {
+    let i = slash - 1;
+    while (i >= 0 && (text[i] === " " || text[i] === "\t"))
+        i--;
+    if (i < 0)
+        return null;
+    const rawEnd = i + 1;
+    let start;
+    if (isCloseParen(text[i])) {
+        const open = matchingBack(text, i, isOpenParen, isCloseParen);
+        if (open < 0)
+            return null;
+        start = open;
+        let j = open - 1;
+        while (j >= 0 && /[A-Za-z0-9\\]/.test(text[j]))
+            j--;
+        start = j + 1;
+    }
+    else {
+        let consumed = false;
+        while (i >= 0) {
+            const ch = text[i];
+            if (/[A-Za-z0-9\\.*']/.test(ch)) {
+                i--;
+                consumed = true;
+                continue;
+            }
+            if (ch === "}") {
+                const open = matchingBack(text, i, (c) => c === "{", (c) => c === "}");
+                if (open <= 0 || (text[open - 1] !== "_" && text[open - 1] !== "^"))
+                    break;
+                i = open - 2;
+                consumed = true;
+                continue;
+            }
+            if ((ch === "_" || ch === "^") && consumed) {
+                i--;
+                continue;
+            }
+            break;
+        }
+        if (!consumed)
+            return null;
+        start = i + 1;
+    }
+    if (start > 0 && isUnaryMinus(text, start - 1))
+        start--;
+    const raw = text.slice(start, rawEnd);
+    if (!raw.trim())
+        return null;
+    return { start, raw };
+}
+function readAtomForward(text, start) {
+    let i = start;
+    while (i < text.length && (text[i] === " " || text[i] === "\t"))
+        i++;
+    if (i >= text.length)
+        return null;
+    const rawStart = i;
+    if (text[i] === "-") {
+        const rest = readAtomBody(text, i + 1);
+        if (!rest)
+            return null;
+        return { end: rest.end, raw: text.slice(rawStart, rest.end) };
+    }
+    return readAtomBody(text, i);
+}
+function readAtomBody(text, index) {
+    if (index >= text.length)
+        return null;
+    if (isOpenParen(text[index])) {
+        const close = matchingForward(text, index, isOpenParen, isCloseParen);
+        if (close < 0)
+            return null;
+        return { end: close + 1, raw: text.slice(index, close + 1) };
+    }
+    let i = index;
+    let consumed = false;
+    while (i < text.length) {
+        const ch = text[i];
+        if (/[A-Za-z0-9\\.*']/.test(ch)) {
+            i++;
+            consumed = true;
+            continue;
+        }
+        if ((ch === "_" || ch === "^") && i + 1 < text.length) {
+            if (text[i + 1] === "{") {
+                const close = matchingForward(text, i + 1, (c) => c === "{", (c) => c === "}");
+                if (close < 0)
+                    break;
+                i = close + 1;
+                consumed = true;
+                continue;
+            }
+            if (/[A-Za-z0-9\\.]/.test(text[i + 1])) {
+                i += 2;
+                consumed = true;
+                continue;
+            }
+        }
+        break;
+    }
+    if (!consumed)
+        return null;
+    return { end: i, raw: text.slice(index, i) };
+}
+function indexOfSlash(text) {
+    for (let i = 0; i < text.length; i++) {
+        if (text[i] === "/" || text[i] === "／")
+            return i;
+    }
+    return -1;
+}
+function keepSlash(text, slash) {
+    return convertByAtoms(text.slice(0, slash)) + text[slash] + convertByAtoms(text.slice(slash + 1));
+}
+function convertByAtoms(text) {
+    const slash = indexOfSlash(text);
+    if (slash < 0)
+        return text;
+    const url = urlSpan(text, slash);
+    if (url) {
+        return (convertByAtoms(text.slice(0, url.start)) +
+            text.slice(url.start, url.end) +
+            convertByAtoms(text.slice(url.end)));
+    }
+    const left = readAtomBackward(text, slash);
+    const right = readAtomForward(text, slash + 1);
+    if (!left || !right)
+        return keepSlash(text, slash);
+    const date = dateSpan(text, left.start, right.end);
+    if (date) {
+        return convertByAtoms(text.slice(0, date.start)) + text.slice(date.start, date.end) + convertByAtoms(text.slice(date.end));
+    }
+    const num = stripOuterParens(left.raw.trim());
+    const den = stripOuterParens(right.raw.trim());
+    if (!num || !den)
+        return keepSlash(text, slash);
+    const frac = `\\frac{${convertInner(num)}}{${convertInner(den)}}`;
+    return convertByAtoms(text.slice(0, left.start)) + frac + convertByAtoms(text.slice(right.end));
+}
+function convertInner(text) {
+    if (!hasSlash(text))
+        return text;
+    const pure = tryPureMathFraction(text, false);
+    if (pure !== null)
+        return pure;
+    return convertByAtoms(text);
+}
+/** 将文本中的分数写成 \frac{分子}{分母}。整段选区若本身就是一个分数，按整段转换。 */
+function convertTextToLatexFraction(text) {
+    if (!hasSlash(text))
+        return text;
+    const pure = tryPureMathFraction(text, true);
+    if (pure !== null)
+        return pure;
+    return convertByAtoms(text);
+}
+
 /** 保护代码块 / 行内代码 / 公式，避免格式变换误伤 */
 const PLACEHOLDER_START = "\uE000";
 const PLACEHOLDER_END = "\uE001";
@@ -774,6 +1117,10 @@ function flattenSelectionToBold(editor) {
 function removeRedInSelection(editor) {
     rewriteSelection(editor, stripRedMarkup);
 }
+/** 将选区中的 a/b 转为 LaTeX 分数 \frac{a}{b} */
+function convertSelectionToFraction(editor) {
+    rewriteSelection(editor, convertTextToLatexFraction);
+}
 
 const HEADING_LEVELS = [1, 2, 3, 4, 5, 6];
 const HEADING_LABELS = {
@@ -1398,6 +1745,7 @@ const ALL_TOOLBAR_BUTTONS = [
     "typora-config",
     "code-language",
     "callout",
+    "annotate",
     "remove-callout",
     "bold",
     "flatten-to-bold",
@@ -1409,21 +1757,24 @@ const ALL_TOOLBAR_BUTTONS = [
     "block-math-to-inline",
     "block-math-to-inline-join",
     "normalize-punctuation",
+    "to-fraction",
 ];
 /** 当前布局版本：有快捷键的按钮移出工具栏，默认只保留常用项 */
-const TOOLBAR_LAYOUT_VERSION = 2;
+const TOOLBAR_LAYOUT_VERSION = 4;
 const DEFAULT_SETTINGS = {
     defaultCodeLanguage: "",
-    codeLanguages: ["java", "python", "javascript", "typescript", "bash", "sql", ""],
+    codeLanguages: ["java", "python", "javascript", "typescript", "bash", "sql", "jsp", ""],
     // 默认精简：模式 / 配置 / 语言 / 提示 / 常用样式与转换；其余进「更多」
     toolbarButtonOrder: [
         "typora-mode",
         "typora-config",
         "code-language",
         "callout",
+        "annotate",
         "flatten-to-bold",
         "red-underline",
         "table-to-md",
+        "to-fraction",
     ],
     toolbarLayoutVersion: TOOLBAR_LAYOUT_VERSION,
     typoraMode: false,
@@ -1445,8 +1796,10 @@ const TOOLBAR_BUTTON_LABELS = {
     "red-underline": "红+下划线",
     "red-wavy": "红+波浪线",
     callout: "提示",
+    annotate: "批注",
     "remove-callout": "取消提示",
     "table-to-md": "表格转MD",
+    "to-fraction": "转分数",
 };
 function formatLanguageLabel(language) {
     return language.trim() === "" ? "无" : language;
@@ -1527,6 +1880,718 @@ class FormatHotkeysSettingTab extends ObsidianApi.PluginSettingTab {
             this.display();
         })));
     }
+}
+
+/**
+ * 选区高亮 + 悬停批注。
+ * 写法放在笔记正文里，阅读视图和源码模式都能看到：
+ * <span class="fh-anno" data-color="yellow" data-fh-id="ab12cd" data-comment="解释">原文</span>
+ * 交互参考开源 Comment / Marginalia：选中文字、写下解释、鼠标移上去显示。
+ */
+const ANNO_COLORS = ["yellow", "green", "blue", "pink", "orange"];
+const COLOR_LABEL = {
+    yellow: "黄色",
+    green: "绿色",
+    blue: "蓝色",
+    pink: "粉色",
+    orange: "橙色",
+};
+const SWATCH = {
+    yellow: "#ffe08a",
+    green: "#b7ebc6",
+    blue: "#b9d6ff",
+    pink: "#ffc6de",
+    orange: "#ffd0a8",
+};
+const hideTag = view.Decoration.mark({ class: "fh-anno-tag" });
+function encodeAttr(text) {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\r\n|\r|\n/g, "&#10;");
+}
+function decodeAttr(text) {
+    return text
+        .replace(/&#10;/g, "\n")
+        .replace(/&#13;/g, "")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&");
+}
+function readAttr(attrs, name) {
+    const re = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, "i");
+    const match = attrs.match(re);
+    if (!match) {
+        return null;
+    }
+    return decodeAttr(match[2]);
+}
+function parseAnnoAttrs(attrs) {
+    var _a, _b, _c, _d;
+    const className = readAttr(attrs, "class");
+    if (!className || !className.split(/\s+/).includes("fh-anno")) {
+        return null;
+    }
+    const colorRaw = (_a = readAttr(attrs, "data-color")) !== null && _a !== void 0 ? _a : "yellow";
+    const color = ANNO_COLORS.includes(colorRaw) ? colorRaw : "yellow";
+    const comment = ((_c = (_b = readAttr(attrs, "data-comment")) !== null && _b !== void 0 ? _b : readAttr(attrs, "title")) !== null && _c !== void 0 ? _c : "").trim();
+    const idRaw = (_d = readAttr(attrs, "data-fh-id")) !== null && _d !== void 0 ? _d : "";
+    const id = /^[a-z0-9]{4,16}$/.test(idRaw) ? idRaw : "";
+    return { color, comment, id };
+}
+function fenceRanges$1(doc) {
+    var _a;
+    const ranges = [];
+    const re = /^[ \t]{0,3}(`{3,}|~{3,})(.*)$/gm;
+    let open = null;
+    let match;
+    while ((match = re.exec(doc))) {
+        const marker = match[1];
+        const info = ((_a = match[2]) !== null && _a !== void 0 ? _a : "").trim();
+        if (!open) {
+            open = { index: match.index, char: marker[0], len: marker.length };
+            continue;
+        }
+        if (info === "" && marker[0] === open.char && marker.length >= open.len) {
+            ranges.push([open.index, match.index + match[0].length]);
+            open = null;
+        }
+    }
+    if (open) {
+        ranges.push([open.index, doc.length]);
+    }
+    return ranges;
+}
+function insideRange(pos, ranges) {
+    return ranges.some(([from, to]) => pos >= from && pos < to);
+}
+function findAnnotations(doc) {
+    var _a;
+    const blocked = fenceRanges$1(doc);
+    const out = [];
+    const re = /<span\b([^>]*)>/gi;
+    let match;
+    while ((match = re.exec(doc))) {
+        const parsed = parseAnnoAttrs((_a = match[1]) !== null && _a !== void 0 ? _a : "");
+        if (!parsed) {
+            continue;
+        }
+        const openAt = match.index;
+        if (insideRange(openAt, blocked)) {
+            continue;
+        }
+        const innerFrom = openAt + match[0].length;
+        const close = doc.indexOf("</span>", innerFrom);
+        if (close < 0) {
+            continue;
+        }
+        const to = close + "</span>".length;
+        out.push({
+            from: openAt,
+            to,
+            innerFrom,
+            innerTo: close,
+            inner: doc.slice(innerFrom, close),
+            color: parsed.color,
+            comment: parsed.comment,
+            id: parsed.id,
+        });
+        re.lastIndex = to;
+    }
+    return out;
+}
+function buildAnnotation(inner, color, comment, id) {
+    const safeColor = ANNO_COLORS.includes(color) ? color : "yellow";
+    const safeId = /^[a-z0-9]{4,16}$/.test(id) ? id : "anno00";
+    const parts = [`class="fh-anno"`, `data-color="${safeColor}"`, `data-fh-id="${safeId}"`];
+    const text = comment.trim();
+    if (text) {
+        const encoded = encodeAttr(text);
+        parts.push(`data-comment="${encoded}"`, `title="${encoded}"`);
+    }
+    return `<span ${parts.join(" ")}>${inner}</span>`;
+}
+function createId(doc) {
+    const used = new Set(findAnnotations(doc).map((ann) => ann.id).filter(Boolean));
+    for (let n = 0; n < 6; n++) {
+        const id = Math.random().toString(36).slice(2, 8).padEnd(6, "0");
+        if (!used.has(id)) {
+            return id;
+        }
+    }
+    return Date.now().toString(36).slice(-8);
+}
+function posToOffset(doc, pos) {
+    let line = 0;
+    let i = 0;
+    while (i < doc.length && line < pos.line) {
+        if (doc.charCodeAt(i) === 10) {
+            line++;
+        }
+        i++;
+    }
+    return Math.min(doc.length, i + Math.max(0, pos.ch));
+}
+function offsetToPos(doc, offset) {
+    let line = 0;
+    let start = 0;
+    const end = Math.max(0, Math.min(offset, doc.length));
+    for (let i = 0; i < end; i++) {
+        if (doc.charCodeAt(i) === 10) {
+            line++;
+            start = i + 1;
+        }
+    }
+    return { line, ch: end - start };
+}
+function askAnnotation(app, initial, title, allowRemove) {
+    return new AnnotationModal(app, initial, title, allowRemove).openAndWait();
+}
+class AnnotationModal extends ObsidianApi.Modal {
+    constructor(app, initial, titleText, allowRemove) {
+        super(app);
+        this.initial = initial;
+        this.titleText = titleText;
+        this.allowRemove = allowRemove;
+        this.settled = false;
+        this.color = initial.color;
+        this.resolve = () => undefined;
+    }
+    openAndWait() {
+        return new Promise((resolve) => {
+            this.resolve = resolve;
+            this.open();
+        });
+    }
+    onOpen() {
+        const { contentEl, titleEl } = this;
+        contentEl.addClass("fh-anno-modal");
+        titleEl.setText(this.titleText);
+        contentEl.createEl("p", {
+            text: "高亮会留在原文上。写下解释后，鼠标移到高亮上就会显示。解释可以留空，只保留高亮。",
+            cls: "fh-anno-modal-desc",
+        });
+        const colors = contentEl.createDiv({ cls: "fh-anno-colors" });
+        const paint = () => {
+            colors.empty();
+            for (const color of ANNO_COLORS) {
+                const btn = colors.createEl("button", {
+                    cls: `fh-anno-swatch${color === this.color ? " is-active" : ""}`,
+                    attr: { type: "button", "aria-label": COLOR_LABEL[color], title: COLOR_LABEL[color] },
+                });
+                btn.style.background = SWATCH[color];
+                btn.addEventListener("click", () => {
+                    this.color = color;
+                    paint();
+                });
+            }
+        };
+        paint();
+        const input = contentEl.createEl("textarea", {
+            cls: "fh-anno-input",
+            attr: { placeholder: "解释或评论，可留空", rows: "5" },
+        });
+        input.value = this.initial.comment;
+        const row = contentEl.createDiv({ cls: "fh-anno-modal-actions" });
+        if (this.allowRemove) {
+            const removeBtn = row.createEl("button", { text: "移除" });
+            removeBtn.addEventListener("click", () => {
+                this.finish({ comment: input.value, color: this.color, action: "remove" });
+            });
+        }
+        const right = row.createDiv({ cls: "fh-anno-modal-actions-right" });
+        right.createEl("button", { text: "取消" }).addEventListener("click", () => {
+            this.finish(null);
+        });
+        const save = right.createEl("button", { text: "保存", cls: "mod-cta" });
+        save.addEventListener("click", () => {
+            this.finish({ comment: input.value, color: this.color, action: "save" });
+        });
+        input.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) {
+                ev.preventDefault();
+                this.finish({ comment: input.value, color: this.color, action: "save" });
+            }
+        });
+        window.setTimeout(() => input.focus(), 0);
+    }
+    finish(value) {
+        if (this.settled) {
+            return;
+        }
+        this.settled = true;
+        this.resolve(value);
+        this.close();
+    }
+    onClose() {
+        if (!this.settled) {
+            this.settled = true;
+            this.resolve(null);
+        }
+        this.contentEl.empty();
+    }
+}
+function annotationTouching(doc, from, to) {
+    var _a, _b;
+    const start = Math.min(from, to);
+    const end = Math.max(from, to);
+    const anns = findAnnotations(doc);
+    if (start === end) {
+        return (_a = anns.find((ann) => start >= ann.from && start <= ann.to)) !== null && _a !== void 0 ? _a : null;
+    }
+    return (_b = anns.find((ann) => start < ann.to && end > ann.from)) !== null && _b !== void 0 ? _b : null;
+}
+function replaceSpan(editor, ann, next) {
+    const doc = editor.getValue();
+    const fresh = findAnnotations(doc).find((item) => (ann.id && item.id === ann.id) || (item.from === ann.from && item.to === ann.to));
+    const target = fresh !== null && fresh !== void 0 ? fresh : ann;
+    if (!doc.slice(target.from, target.to).startsWith("<span")) {
+        new ObsidianApi.Notice("批注位置已变化，请重试");
+        return;
+    }
+    editor.replaceRange(next, offsetToPos(doc, target.from), offsetToPos(doc, target.to));
+}
+function promptAnnotation(app, editor) {
+    const doc = editor.getValue();
+    const rawFrom = posToOffset(doc, editor.getCursor("from"));
+    const rawTo = posToOffset(doc, editor.getCursor("to"));
+    const from = Math.min(rawFrom, rawTo);
+    const to = Math.max(rawFrom, rawTo);
+    const hit = annotationTouching(doc, from, to);
+    if (from === to) {
+        if (hit) {
+            void editAnnotation(app, editor, hit);
+            return;
+        }
+        new ObsidianApi.Notice("请先选中要高亮的文字");
+        return;
+    }
+    if (hit) {
+        const inside = from >= hit.innerFrom && to <= hit.innerTo;
+        if (inside) {
+            void editAnnotation(app, editor, hit);
+            return;
+        }
+        new ObsidianApi.Notice("选区与已有批注重叠");
+        return;
+    }
+    if (fenceRanges$1(doc).some(([a, b]) => from < b && to > a)) {
+        new ObsidianApi.Notice("代码块里不能添加批注");
+        return;
+    }
+    const selected = editor.getSelection();
+    if (!selected.trim()) {
+        new ObsidianApi.Notice("请先选中要高亮的文字");
+        return;
+    }
+    if (/<\/?span\b/i.test(selected)) {
+        new ObsidianApi.Notice("选区里已有 span 标签，请换一段文字");
+        return;
+    }
+    void askAnnotation(app, { comment: "", color: "yellow" }, "高亮并批注", false).then((result) => {
+        if (!result || result.action !== "save") {
+            return;
+        }
+        const current = editor.getSelection();
+        if (current !== selected) {
+            new ObsidianApi.Notice("选区已变化，请重新添加");
+            return;
+        }
+        editor.replaceSelection(buildAnnotation(current, result.color, result.comment, createId(editor.getValue())));
+    });
+}
+function editAnnotation(app, editor, ann) {
+    var _a;
+    return __awaiter(this, void 0, void 0, function* () {
+        const result = yield askAnnotation(app, { comment: ann.comment, color: ann.color }, "编辑批注", true);
+        if (!result) {
+            return;
+        }
+        const docNow = editor.getValue();
+        const freshNow = (_a = findAnnotations(docNow).find((item) => (ann.id && item.id === ann.id) || (item.from === ann.from && item.to === ann.to))) !== null && _a !== void 0 ? _a : ann;
+        if (result.action === "remove") {
+            replaceSpan(editor, freshNow, freshNow.inner);
+            return;
+        }
+        const id = freshNow.id || createId(docNow);
+        replaceSpan(editor, freshNow, buildAnnotation(freshNow.inner, result.color, result.comment, id));
+    });
+}
+function editAnnotationAtCursor(app, editor) {
+    const doc = editor.getValue();
+    const pos = posToOffset(doc, editor.getCursor("from"));
+    const hit = annotationTouching(doc, pos, pos);
+    if (!hit) {
+        new ObsidianApi.Notice("光标不在批注上");
+        return;
+    }
+    void editAnnotation(app, editor, hit);
+}
+function removeAnnotationAtCursor(editor) {
+    const doc = editor.getValue();
+    const from = posToOffset(doc, editor.getCursor("from"));
+    const to = posToOffset(doc, editor.getCursor("to"));
+    const hit = annotationTouching(doc, from, to);
+    if (!hit) {
+        new ObsidianApi.Notice("光标不在批注上");
+        return;
+    }
+    replaceSpan(editor, hit, hit.inner);
+}
+function addAnnotationMenuItems(menu, app, editor) {
+    menu.addItem((item) => {
+        item.setTitle("高亮并批注");
+        item.onClick(() => promptAnnotation(app, editor));
+    });
+    const doc = editor.getValue();
+    const pos = posToOffset(doc, editor.getCursor("from"));
+    const hit = annotationTouching(doc, pos, pos);
+    if (!hit) {
+        return;
+    }
+    menu.addItem((item) => {
+        item.setTitle("编辑批注");
+        item.onClick(() => void editAnnotation(app, editor, hit));
+    });
+    menu.addItem((item) => {
+        item.setTitle("移除批注");
+        item.onClick(() => replaceSpan(editor, hit, hit.inner));
+    });
+}
+function revealsSource(view, ann) {
+    for (const range of view.state.selection.ranges) {
+        const start = Math.min(range.from, range.to);
+        const end = Math.max(range.from, range.to);
+        if (start === end) {
+            if (start > ann.from && start < ann.innerFrom) {
+                return true;
+            }
+            if (start > ann.innerTo && start < ann.to) {
+                return true;
+            }
+            continue;
+        }
+        const touchesOpen = start < ann.innerFrom && end > ann.from;
+        const touchesClose = start < ann.to && end > ann.innerTo;
+        if (touchesOpen || touchesClose) {
+            return true;
+        }
+    }
+    return false;
+}
+function markFor(ann) {
+    const attributes = {
+        "data-color": ann.color,
+    };
+    if (ann.id) {
+        attributes["data-fh-id"] = ann.id;
+    }
+    if (ann.comment) {
+        attributes["data-comment"] = ann.comment;
+    }
+    return view.Decoration.mark({ class: "fh-anno", attributes });
+}
+function buildAnnotationDecorations(view) {
+    const builder = new state.RangeSetBuilder();
+    const doc = view.state.doc.toString();
+    let cursor = 0;
+    for (const ann of findAnnotations(doc)) {
+        if (ann.from < cursor || ann.to < ann.from) {
+            continue;
+        }
+        const showSource = revealsSource(view, ann);
+        if (!showSource && ann.innerFrom > ann.from) {
+            builder.add(ann.from, ann.innerFrom, hideTag);
+        }
+        if (ann.innerTo > ann.innerFrom) {
+            builder.add(ann.innerFrom, ann.innerTo, markFor(ann));
+        }
+        if (!showSource && ann.to > ann.innerTo) {
+            builder.add(ann.innerTo, ann.to, hideTag);
+        }
+        cursor = ann.to;
+    }
+    return builder.finish();
+}
+const annotationPlugin = view.ViewPlugin.fromClass(class {
+    constructor(view) {
+        this.decorations = buildAnnotationDecorations(view);
+    }
+    update(update) {
+        if (update.docChanged || update.selectionSet) {
+            this.decorations = buildAnnotationDecorations(update.view);
+        }
+    }
+}, {
+    decorations: (value) => value.decorations,
+});
+function createAnnotationExtension() {
+    return annotationPlugin;
+}
+let tooltipEl = null;
+let currentHost = null;
+let hideTimer = null;
+function removeTooltip() {
+    tooltipEl === null || tooltipEl === void 0 ? void 0 : tooltipEl.remove();
+    tooltipEl = null;
+    currentHost = null;
+}
+function hideTooltip() {
+    if (hideTimer !== null) {
+        window.clearTimeout(hideTimer);
+        hideTimer = null;
+    }
+    removeTooltip();
+}
+function scheduleHideTooltip() {
+    if (hideTimer !== null) {
+        window.clearTimeout(hideTimer);
+    }
+    hideTimer = window.setTimeout(() => {
+        hideTimer = null;
+        removeTooltip();
+    }, 220);
+}
+function cancelHideTooltip() {
+    if (hideTimer !== null) {
+        window.clearTimeout(hideTimer);
+        hideTimer = null;
+    }
+}
+function destroyAnnotationTooltip() {
+    hideTooltip();
+}
+function viewContaining(app, el) {
+    let found = null;
+    app.workspace.iterateAllLeaves((leaf) => {
+        if (found) {
+            return;
+        }
+        const view = leaf.view;
+        if (view instanceof ObsidianApi.MarkdownView && view.containerEl.contains(el)) {
+            found = view;
+        }
+    });
+    return found;
+}
+function cmOf(editor) {
+    const cm = editor.cm;
+    return cm !== null && cm !== void 0 ? cm : null;
+}
+function locate(data, view, host) {
+    var _a, _b, _c, _d, _e;
+    const anns = findAnnotations(data);
+    const id = (_a = host.getAttribute("data-fh-id")) !== null && _a !== void 0 ? _a : "";
+    if (id) {
+        const byId = anns.find((ann) => ann.id === id);
+        if (byId) {
+            return byId;
+        }
+    }
+    if (view.getMode() === "source") {
+        const cm = cmOf(view.editor);
+        if (cm) {
+            try {
+                const pos = cm.posAtDOM(host, 0);
+                const byPos = anns.find((ann) => pos >= ann.innerFrom && pos <= ann.innerTo);
+                if (byPos) {
+                    return byPos;
+                }
+            }
+            catch (_f) {
+                // 节点已经不在编辑器里
+            }
+        }
+    }
+    const comment = (_b = host.getAttribute("data-comment")) !== null && _b !== void 0 ? _b : "";
+    const inner = (_c = host.textContent) !== null && _c !== void 0 ? _c : "";
+    return (_d = anns.find((ann) => ann.comment === comment && ann.inner === inner)) !== null && _d !== void 0 ? _d : (inner ? (_e = anns.find((ann) => ann.inner === inner)) !== null && _e !== void 0 ? _e : null : null);
+}
+function readNote(view) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (view.getMode() === "source") {
+            try {
+                return view.editor.getValue();
+            }
+            catch (_a) {
+                return null;
+            }
+        }
+        if (view.file) {
+            try {
+                return yield view.app.vault.cachedRead(view.file);
+            }
+            catch (_b) {
+                return null;
+            }
+        }
+        return null;
+    });
+}
+function applyHoverEdit(view, ann, build) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const resolve = (data) => {
+            var _a;
+            return (_a = findAnnotations(data).find((item) => (ann.id && item.id === ann.id) || (item.from === ann.from && item.inner === ann.inner))) !== null && _a !== void 0 ? _a : null;
+        };
+        if (view.getMode() === "source") {
+            const fresh = resolve(view.editor.getValue());
+            if (!fresh) {
+                new ObsidianApi.Notice("找不到这条批注");
+                return;
+            }
+            replaceSpan(view.editor, fresh, build(fresh));
+            return;
+        }
+        const file = view.file;
+        if (!file) {
+            new ObsidianApi.Notice("当前笔记无法修改");
+            return;
+        }
+        const data = yield view.app.vault.read(file);
+        const fresh = resolve(data);
+        if (!fresh) {
+            new ObsidianApi.Notice("找不到这条批注");
+            return;
+        }
+        const built = build(fresh);
+        yield view.app.vault.modify(file, data.slice(0, fresh.from) + built + data.slice(fresh.to));
+    });
+}
+function placeTooltip(tip, anchor) {
+    tip.style.visibility = "hidden";
+    tip.style.display = "block";
+    const rect = anchor.getBoundingClientRect();
+    const width = tip.offsetWidth;
+    const height = tip.offsetHeight;
+    let left = rect.left;
+    let top = rect.top - height - 8;
+    if (top < 8) {
+        top = rect.bottom + 8;
+    }
+    if (left + width > window.innerWidth - 8) {
+        left = window.innerWidth - width - 8;
+    }
+    if (left < 8) {
+        left = 8;
+    }
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+    tip.style.visibility = "visible";
+}
+function showTooltip(app, host, comment) {
+    if (!tooltipEl) {
+        tooltipEl = document.body.createDiv({ cls: "fh-anno-tip" });
+    }
+    currentHost = host;
+    tooltipEl.empty();
+    tooltipEl.createDiv({ cls: "fh-anno-tip-label", text: "批注" });
+    const body = tooltipEl.createDiv({ cls: "fh-anno-tip-text" });
+    body.textContent = comment;
+    const actions = tooltipEl.createDiv({ cls: "fh-anno-tip-actions" });
+    const editBtn = actions.createEl("button", { text: "编辑", cls: "fh-anno-tip-btn", attr: { type: "button" } });
+    const removeBtn = actions.createEl("button", { text: "移除", cls: "fh-anno-tip-btn", attr: { type: "button" } });
+    const run = (action) => {
+        const view = viewContaining(app, host);
+        hideTooltip();
+        if (!view) {
+            new ObsidianApi.Notice("找不到所在笔记");
+            return;
+        }
+        void (() => __awaiter(this, void 0, void 0, function* () {
+            const data = yield readNote(view);
+            if (data === null) {
+                new ObsidianApi.Notice("读不到笔记内容");
+                return;
+            }
+            const ann = locate(data, view, host);
+            if (!ann) {
+                new ObsidianApi.Notice("找不到这条批注");
+                return;
+            }
+            if (action === "remove") {
+                yield applyHoverEdit(view, ann, (fresh) => fresh.inner);
+                return;
+            }
+            if (view.getMode() !== "source") {
+                const result = yield askAnnotation(app, { comment: ann.comment, color: ann.color }, "编辑批注", true);
+                if (!result) {
+                    return;
+                }
+                if (result.action === "remove") {
+                    yield applyHoverEdit(view, ann, (fresh) => fresh.inner);
+                    return;
+                }
+                yield applyHoverEdit(view, ann, (fresh) => buildAnnotation(fresh.inner, result.color, result.comment, fresh.id || createId(data)));
+                return;
+            }
+            yield editAnnotation(app, view.editor, ann);
+        }))();
+    };
+    editBtn.addEventListener("mousedown", (ev) => ev.preventDefault());
+    removeBtn.addEventListener("mousedown", (ev) => ev.preventDefault());
+    editBtn.addEventListener("click", () => run("edit"));
+    removeBtn.addEventListener("click", () => run("remove"));
+    placeTooltip(tooltipEl, host);
+}
+function commentFromHost(host) {
+    const data = host.getAttribute("data-comment");
+    if (data && data.trim()) {
+        host.removeAttribute("title");
+        return data;
+    }
+    const title = host.getAttribute("title");
+    if (title && title.trim()) {
+        host.setAttribute("data-comment", title);
+        host.removeAttribute("title");
+        return title;
+    }
+    return "";
+}
+function installAnnotationHover(plugin) {
+    const app = plugin.app;
+    plugin.registerDomEvent(document, "mouseover", (evt) => {
+        const target = evt.target;
+        if (!(target instanceof Element)) {
+            return;
+        }
+        const host = target.closest(".fh-anno");
+        if (host instanceof HTMLElement) {
+            const comment = commentFromHost(host);
+            if (!comment.trim()) {
+                scheduleHideTooltip();
+                return;
+            }
+            cancelHideTooltip();
+            if (host === currentHost && tooltipEl) {
+                return;
+            }
+            showTooltip(app, host, comment);
+            return;
+        }
+        if (target.closest(".fh-anno-tip")) {
+            cancelHideTooltip();
+            return;
+        }
+    });
+    plugin.registerDomEvent(document, "mouseout", (evt) => {
+        const related = evt.relatedTarget;
+        if (related instanceof Element && (related.closest(".fh-anno") || related.closest(".fh-anno-tip"))) {
+            return;
+        }
+        const fromAnno = evt.target instanceof Element && (evt.target.closest(".fh-anno") || evt.target.closest(".fh-anno-tip"));
+        if (!fromAnno) {
+            return;
+        }
+        scheduleHideTooltip();
+    });
+    window.addEventListener("scroll", hideTooltip, true);
+    plugin.register(() => window.removeEventListener("scroll", hideTooltip, true));
 }
 
 class LanguageInputModal extends ObsidianApi.Modal {
@@ -1705,6 +2770,7 @@ const EDITOR_ACTIONS = {
     "normalize-punctuation": normalizePunctuation,
     "remove-callout": removeCallout,
     "table-to-md": convertHtmlTableToMarkdown,
+    "to-fraction": convertSelectionToFraction,
 };
 class EditorToolbarManager {
     constructor(plugin) {
@@ -1766,6 +2832,9 @@ class EditorToolbarManager {
             case "callout":
                 this.addCalloutButton(view);
                 return;
+            case "annotate":
+                this.addActionButton(view, "批注", (editor) => promptAnnotation(this.plugin.app, editor));
+                return;
             default: {
                 const action = EDITOR_ACTIONS[buttonId];
                 if (action) {
@@ -1791,6 +2860,9 @@ class EditorToolbarManager {
                     this.showCalloutMenu(anchor, view);
                 else
                     wrapCallout(view.editor, "tip");
+                return;
+            case "annotate":
+                promptAnnotation(this.plugin.app, view.editor);
                 return;
             default: {
                 const action = EDITOR_ACTIONS[buttonId];
@@ -2102,7 +3174,7 @@ const markerDeco = view.Decoration.mark({ class: "typora-paren-list-marker" });
 function isTyporaModeOn$2() {
     return document.body.classList.contains("typora-mode-active");
 }
-function buildDecorations$4(view$1) {
+function buildDecorations$5(view$1) {
     const builder = new state.RangeSetBuilder();
     if (!isTyporaModeOn$2()) {
         return view.Decoration.none;
@@ -2147,12 +3219,12 @@ function buildDecorations$4(view$1) {
 }
 const parenListPlugin = view.ViewPlugin.fromClass(class {
     constructor(view) {
-        this.decorations = buildDecorations$4(view);
+        this.decorations = buildDecorations$5(view);
     }
     update(update) {
         const forced = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshParenListEffect)));
         if (update.docChanged || update.viewportChanged || forced) {
-            this.decorations = buildDecorations$4(update.view);
+            this.decorations = buildDecorations$5(update.view);
         }
     }
 }, {
@@ -2203,12 +3275,12 @@ for (let i = 0; i <= 31; i++) {
     REGISTERS.add(`w${i}`);
     REGISTERS.add(`x${i}`);
 }
-const decoCache$2 = new Map();
-function tokenMark$2(type) {
-    let deco = decoCache$2.get(type);
+const decoCache$3 = new Map();
+function tokenMark$3(type) {
+    let deco = decoCache$3.get(type);
     if (!deco) {
         deco = view.Decoration.mark({ class: `cm-${type}` });
-        decoCache$2.set(type, deco);
+        decoCache$3.set(type, deco);
     }
     return deco;
 }
@@ -2229,7 +3301,7 @@ function tokenizeLine$1(from, text, builder) {
     const n = text.length;
     const add = (start, end, type) => {
         if (end > start) {
-            builder.add(from + start, from + end, tokenMark$2(type));
+            builder.add(from + start, from + end, tokenMark$3(type));
         }
     };
     while (i < n) {
@@ -2290,7 +3362,7 @@ function tokenizeLine$1(from, text, builder) {
         i++;
     }
 }
-function buildDecorations$3(view) {
+function buildDecorations$4(view) {
     const builder = new state.RangeSetBuilder();
     const doc = view.state.doc;
     let lang = null;
@@ -2315,12 +3387,12 @@ function buildDecorations$3(view) {
 const refreshAsmHighlightEffect = state.StateEffect.define();
 const asmHighlightPlugin = view.ViewPlugin.fromClass(class {
     constructor(view) {
-        this.decorations = buildDecorations$3(view);
+        this.decorations = buildDecorations$4(view);
     }
     update(update) {
         const forced = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshAsmHighlightEffect)));
         if (update.docChanged || update.viewportChanged || forced) {
-            this.decorations = buildDecorations$3(update.view);
+            this.decorations = buildDecorations$4(update.view);
         }
     }
 }, {
@@ -2382,19 +3454,19 @@ const KEYWORDS$1 = new Set(("alignas alignof and and_eq asm bitand bitor break c
 const TYPES$1 = new Set("void bool char wchar_t char8_t char16_t char32_t short int long float double signed unsigned auto _Bool".split(/\s+/));
 /** class / struct / enum / union 后面的名字按类型上色。 */
 const TYPE_INTRODUCERS = new Set(["class", "struct", "enum", "union"]);
-const NUMBER_RE$1 = /^(?:0[xX][0-9a-fA-F]+(?:'[0-9a-fA-F]+)*|0[bB][01]+(?:'[01]+)*|(?:\d+(?:'\d+)*)\.(?:\d+(?:'\d+)*)?(?:[eE][+-]?\d+)?|\.\d+(?:'\d+)*(?:[eE][+-]?\d+)?|\d+(?:'\d+)*(?:[eE][+-]?\d+)?)(?:[uU][lL]{1,2}|[lL]{1,2}[uU]?|[uUlLzZfF])?/;
+const NUMBER_RE$2 = /^(?:0[xX][0-9a-fA-F]+(?:'[0-9a-fA-F]+)*|0[bB][01]+(?:'[01]+)*|(?:\d+(?:'\d+)*)\.(?:\d+(?:'\d+)*)?(?:[eE][+-]?\d+)?|\.\d+(?:'\d+)*(?:[eE][+-]?\d+)?|\d+(?:'\d+)*(?:[eE][+-]?\d+)?)(?:[uU][lL]{1,2}|[lL]{1,2}[uU]?|[uUlLzZfF])?/;
 const OP_RE = /^(?:<<=|>>=|\+\+|--|->|::|<<|>>|<=|>=|==|!=|&&|\|\||\+=|-=|\*=|\/=|%=|&=|\|=|\^=|[+\-*/%&|^~!=<>?:.,;()[\]{}#])/;
-const decoCache$1 = new Map();
+const decoCache$2 = new Map();
 const cppLine = view.Decoration.line({ class: "fh-cpp" });
-function tokenMark$1(cls) {
-    let deco = decoCache$1.get(cls);
+function tokenMark$2(cls) {
+    let deco = decoCache$2.get(cls);
     if (!deco) {
         deco = view.Decoration.mark({ class: cls });
-        decoCache$1.set(cls, deco);
+        decoCache$2.set(cls, deco);
     }
     return deco;
 }
-function languageId(info) {
+function languageId$1(info) {
     var _a;
     let lang = info.trim().toLowerCase();
     const braced = lang.match(/^\{[.#]?([^}\s]+)/);
@@ -2407,9 +3479,9 @@ function languageId(info) {
     return lang.replace(/^\.+/, "");
 }
 function isCppLang(info) {
-    return CPP_LANGS.has(languageId(info));
+    return CPP_LANGS.has(languageId$1(info));
 }
-function fenceAt(text) {
+function fenceAt$1(text) {
     const match = /^(?: {0,3}|\t)(```+|~~~+)(.*)$/.exec(text);
     if (!match) {
         return null;
@@ -2435,7 +3507,7 @@ function readIdent(text, i) {
     }
     return j - i;
 }
-function isCall(text, i) {
+function isCall$1(text, i) {
     const j = skipSpace(text, i);
     return text[j] === "(";
 }
@@ -2564,7 +3636,7 @@ function scanCppLine(text, state) {
             continue;
         }
         if (ch === "." && /\d/.test((_a = text[i + 1]) !== null && _a !== void 0 ? _a : "")) {
-            const num = NUMBER_RE$1.exec(text.slice(i));
+            const num = NUMBER_RE$2.exec(text.slice(i));
             if (num) {
                 push(i, i + num[0].length, "fh-cpp-number");
                 i += num[0].length;
@@ -2573,7 +3645,7 @@ function scanCppLine(text, state) {
             }
         }
         if (/\d/.test(ch)) {
-            const num = NUMBER_RE$1.exec(text.slice(i));
+            const num = NUMBER_RE$2.exec(text.slice(i));
             if (num) {
                 push(i, i + num[0].length, "fh-cpp-number");
                 i += num[0].length;
@@ -2597,7 +3669,7 @@ function scanCppLine(text, state) {
                 cls = "fh-cpp-type";
                 expectType = false;
             }
-            else if (isCall(text, i + identLen)) {
+            else if (isCall$1(text, i + identLen)) {
                 cls = "fh-cpp-func";
             }
             else {
@@ -2620,14 +3692,14 @@ function scanCppLine(text, state) {
     }
     return { pieces, state: next };
 }
-function buildDecorations$2(view) {
+function buildDecorations$3(view) {
     const builder = new state.RangeSetBuilder();
     const doc = view.state.doc;
     let fence = null;
     let scan = { blockComment: false, rawDelim: null };
     for (let lineNo = 1; lineNo <= doc.lines; lineNo++) {
         const line = doc.line(lineNo);
-        const found = fenceAt(line.text);
+        const found = fenceAt$1(line.text);
         if (fence) {
             if (found && found.char === fence.char && found.lang === "") {
                 fence = null;
@@ -2641,7 +3713,7 @@ function buildDecorations$2(view) {
             const scanned = scanCppLine(line.text, scan);
             scan = scanned.state;
             for (const piece of scanned.pieces) {
-                builder.add(line.from + piece.from, line.from + piece.to, tokenMark$1(piece.cls));
+                builder.add(line.from + piece.from, line.from + piece.to, tokenMark$2(piece.cls));
             }
             continue;
         }
@@ -2654,11 +3726,11 @@ function buildDecorations$2(view) {
 }
 const cppHighlightPlugin = view.ViewPlugin.fromClass(class {
     constructor(view) {
-        this.decorations = buildDecorations$2(view);
+        this.decorations = buildDecorations$3(view);
     }
     update(update) {
         if (update.docChanged) {
-            this.decorations = buildDecorations$2(update.view);
+            this.decorations = buildDecorations$3(update.view);
         }
     }
 }, {
@@ -2668,7 +3740,7 @@ const cppHighlightPlugin = view.ViewPlugin.fromClass(class {
 function createCppHighlightExtension() {
     return cppHighlightPlugin;
 }
-function wordPattern(words) {
+function wordPattern$1(words) {
     const body = [...words].sort((a, b) => b.length - a.length).join("|");
     return new RegExp(`\\b(?:${body})\\b`);
 }
@@ -2689,13 +3761,13 @@ function registerCppPrismLanguages(prism) {
             alias: "property",
         },
         number: /\b(?:0x[\da-f]+|0b[01]+|(?:\d+\.\d*|\.\d+)(?:e[+-]?\d+)?|\d+(?:e[+-]?\d+)?)(?:u|l|ll|z|f)?\b/i,
-        keyword: wordPattern(KEYWORDS$1),
+        keyword: wordPattern$1(KEYWORDS$1),
         "class-name": {
             pattern: /(\b(?:class|struct|enum|union)\s+)\w+\b/,
             lookbehind: true,
         },
         type: {
-            pattern: wordPattern(TYPES$1),
+            pattern: wordPattern$1(TYPES$1),
             alias: "class-name",
         },
         function: /\b[A-Za-z_]\w*(?=\s*\()/,
@@ -2790,12 +3862,12 @@ const BUILTINS = new Set([
     "group_concat", "string_agg", "array_agg", "json_object", "json_array",
     "json_extract", "json_unquote", "json_set", "json_insert", "json_replace",
 ].map((k) => k.toLowerCase()));
-const decoCache = new Map();
-function tokenMark(type) {
-    let deco = decoCache.get(type);
+const decoCache$1 = new Map();
+function tokenMark$1(type) {
+    let deco = decoCache$1.get(type);
     if (!deco) {
         deco = view.Decoration.mark({ class: `cm-${type}` });
-        decoCache.set(type, deco);
+        decoCache$1.set(type, deco);
     }
     return deco;
 }
@@ -2813,7 +3885,7 @@ function fenceLang$1(text) {
 }
 /** 标识符：英文/下划线/中文等字母数字 */
 const IDENT_RE = /^[\p{L}_][\p{L}\p{N}_$]*/u;
-const NUMBER_RE = /^(?:0x[0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/;
+const NUMBER_RE$1 = /^(?:0x[0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/;
 const DELIMITER_MARK_RE = /^\$\$/;
 function tokenizeLine(from, text, builder) {
     var _a;
@@ -2821,7 +3893,7 @@ function tokenizeLine(from, text, builder) {
     const n = text.length;
     const add = (start, end, type) => {
         if (end > start) {
-            builder.add(from + start, from + end, tokenMark(type));
+            builder.add(from + start, from + end, tokenMark$1(type));
         }
     };
     while (i < n) {
@@ -2905,7 +3977,7 @@ function tokenizeLine(from, text, builder) {
             i += 2;
             continue;
         }
-        const num = rest.match(NUMBER_RE);
+        const num = rest.match(NUMBER_RE$1);
         if (num && (i === 0 || !/[\p{L}_]/u.test((_a = text[i - 1]) !== null && _a !== void 0 ? _a : ""))) {
             // 避免把标识符中间的数字吃掉；前面已用 IDENT 优先
             add(i, i + num[0].length, "number");
@@ -2952,7 +4024,7 @@ function tokenizeLine(from, text, builder) {
         i++;
     }
 }
-function buildDecorations$1(view) {
+function buildDecorations$2(view) {
     const builder = new state.RangeSetBuilder();
     const doc = view.state.doc;
     let lang = null;
@@ -2977,12 +4049,12 @@ function buildDecorations$1(view) {
 const refreshSqlHighlightEffect = state.StateEffect.define();
 const sqlHighlightPlugin = view.ViewPlugin.fromClass(class {
     constructor(view) {
-        this.decorations = buildDecorations$1(view);
+        this.decorations = buildDecorations$2(view);
     }
     update(update) {
         const forced = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshSqlHighlightEffect)));
         if (update.docChanged || update.viewportChanged || forced) {
-            this.decorations = buildDecorations$1(update.view);
+            this.decorations = buildDecorations$2(update.view);
         }
     }
 }, {
@@ -3026,6 +4098,716 @@ function registerSqlPrismLanguages(prism) {
         if (!prism.languages[lang]) {
             prism.languages[lang] = grammar;
         }
+    }
+}
+
+/** JSP / JSPX。源码模式自己切词，阅读视图走同一套 Prism 语法。 */
+const JSP_LANGS = new Set(["jsp", "jspx"]);
+const JAVA_KEYWORDS = new Set(("abstract assert break case catch class const continue default do else enum extends final finally " +
+    "for goto if implements import instanceof interface native new package private protected public " +
+    "return static strictfp super switch synchronized this throw throws transient try volatile while " +
+    "true false null var yield record sealed permits").split(/\s+/));
+const JAVA_TYPES = new Set("void boolean byte char short int long float double".split(/\s+/));
+/** JSP 隐式对象。按类型色显示，和方法调用分开。 */
+const IMPLICIT = new Set("request response session out pageContext application config page exception".split(/\s+/));
+const EL_KEYWORDS = new Set("empty not and or eq ne lt gt le ge div mod true false null instanceof new".split(/\s+/));
+const NUMBER_BODY = /(?:0[xX][0-9a-fA-F]+[lL]?|0[bB][01]+[lL]?|(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?[fFdD]?|\d+(?:[eE][+-]?\d+)?[lLfFdD]?)/;
+const NUMBER_RE = new RegExp("^" + NUMBER_BODY.source);
+const ENTITY_BODY = /&(?:#\d+|#x[\da-fA-F]+|[A-Za-z][A-Za-z0-9]+);/;
+const ENTITY_RE = new RegExp("^" + ENTITY_BODY.source);
+const decoCache = new Map();
+const jspLine = view.Decoration.line({ class: "fh-jsp" });
+function tokenMark(cls) {
+    let deco = decoCache.get(cls);
+    if (!deco) {
+        deco = view.Decoration.mark({ class: cls });
+        decoCache.set(cls, deco);
+    }
+    return deco;
+}
+function languageId(info) {
+    var _a;
+    let lang = info.trim().toLowerCase();
+    const braced = lang.match(/^\{[.#]?([^}\s]+)/);
+    if (braced) {
+        lang = braced[1];
+    }
+    else {
+        lang = (_a = lang.split(/[\s:]/)[0]) !== null && _a !== void 0 ? _a : "";
+    }
+    return lang.replace(/^\.+/, "");
+}
+function isJspLang(info) {
+    return JSP_LANGS.has(languageId(info));
+}
+function fenceAt(text) {
+    const match = /^(?: {0,3}|\t)(```+|~~~+)(.*)$/.exec(text);
+    if (!match) {
+        return null;
+    }
+    const marker = match[1];
+    const char = marker[0] === "~" ? "~" : "`";
+    return { char, lang: match[2].trim() };
+}
+function freshState() {
+    return { stack: [{ kind: "html" }] };
+}
+function javaFrame() {
+    return { kind: "java", block: false, quote: null };
+}
+function popFrame(stack) {
+    if (stack.length > 1) {
+        stack.pop();
+    }
+}
+function isCall(text, i) {
+    let j = i;
+    while (text[j] === " " || text[j] === "\t") {
+        j++;
+    }
+    return text[j] === "(";
+}
+function isTagOpen(text, i) {
+    var _a;
+    if (text[i] !== "<") {
+        return false;
+    }
+    const next = text[i + 1];
+    if (next === "/") {
+        return /[A-Za-z]/.test((_a = text[i + 2]) !== null && _a !== void 0 ? _a : "");
+    }
+    return /[A-Za-z]/.test(next !== null && next !== void 0 ? next : "");
+}
+function htmlBoundary(text, i) {
+    if (text.startsWith("<%", i) || text.startsWith("<!--", i) || text.startsWith("<![CDATA[", i) || text.startsWith("<?", i)) {
+        return true;
+    }
+    if (/^<!DOCTYPE/i.test(text.slice(i, i + 10))) {
+        return true;
+    }
+    if ((text.startsWith("${", i) || text.startsWith("#{", i)) && text[i - 1] !== "\\") {
+        return true;
+    }
+    if (isTagOpen(text, i)) {
+        return true;
+    }
+    return text[i] === "&" && ENTITY_RE.test(text.slice(i));
+}
+function consumeHtmlToken(text, i, stack, push) {
+    if (text.startsWith("<%--", i)) {
+        push(i, i + 4, "fh-jsp-comment");
+        stack.push({ kind: "jsp-comment" });
+        return i + 4;
+    }
+    if (text.startsWith("<%@", i)) {
+        push(i, i + 3, "fh-jsp-delim");
+        stack.push({ kind: "dir", phase: "name" });
+        return i + 3;
+    }
+    if (text.startsWith("<%!", i)) {
+        push(i, i + 3, "fh-jsp-delim");
+        stack.push(javaFrame());
+        return i + 3;
+    }
+    if (text.startsWith("<%=", i)) {
+        push(i, i + 3, "fh-jsp-delim");
+        stack.push(javaFrame());
+        return i + 3;
+    }
+    if (text.startsWith("<%", i)) {
+        push(i, i + 2, "fh-jsp-delim");
+        stack.push(javaFrame());
+        return i + 2;
+    }
+    if (text.startsWith("<!--", i)) {
+        push(i, i + 4, "fh-jsp-comment");
+        stack.push({ kind: "html-comment" });
+        return i + 4;
+    }
+    if (text.startsWith("<![CDATA[", i)) {
+        push(i, i + 9, "fh-jsp-delim");
+        stack.push({ kind: "cdata" });
+        return i + 9;
+    }
+    if (/^<!DOCTYPE/i.test(text.slice(i))) {
+        const end = text.indexOf(">", i);
+        if (end < 0) {
+            push(i, text.length, "fh-jsp-delim");
+            return text.length;
+        }
+        push(i, end + 1, "fh-jsp-delim");
+        return end + 1;
+    }
+    if (text.startsWith("<?", i)) {
+        push(i, i + 2, "fh-jsp-delim");
+        stack.push({ kind: "pi" });
+        return i + 2;
+    }
+    if ((text.startsWith("${", i) || text.startsWith("#{", i)) && text[i - 1] !== "\\") {
+        push(i, i + 2, "fh-jsp-delim");
+        stack.push({ kind: "el", depth: 1, quote: null });
+        return i + 2;
+    }
+    if (isTagOpen(text, i)) {
+        const len = text[i + 1] === "/" ? 2 : 1;
+        push(i, i + len, "fh-jsp-delim");
+        stack.push({ kind: "tag", phase: "name" });
+        return i + len;
+    }
+    if (text[i] === "&") {
+        const ent = ENTITY_RE.exec(text.slice(i));
+        if (ent) {
+            push(i, i + ent[0].length, "fh-jsp-string");
+            return i + ent[0].length;
+        }
+    }
+    return i;
+}
+function scanHtml(text, i, stack, push) {
+    if (htmlBoundary(text, i)) {
+        const next = consumeHtmlToken(text, i, stack, push);
+        if (next > i) {
+            return next;
+        }
+    }
+    let j = i + 1;
+    while (j < text.length && !htmlBoundary(text, j)) {
+        j++;
+    }
+    push(i, j, "fh-jsp-plain");
+    return j;
+}
+function consumeUntil(text, i, marker, cls, stack, push) {
+    const at = text.indexOf(marker, i);
+    if (at < 0) {
+        if (i < text.length) {
+            push(i, text.length, cls);
+        }
+        return text.length;
+    }
+    push(i, at + marker.length, cls);
+    popFrame(stack);
+    return at + marker.length;
+}
+function scanPi(text, i, stack, push) {
+    const at = text.indexOf("?>", i);
+    if (at < 0) {
+        if (i < text.length) {
+            push(i, text.length, "fh-jsp-tag");
+        }
+        return text.length;
+    }
+    if (at > i) {
+        push(i, at, "fh-jsp-tag");
+    }
+    push(at, at + 2, "fh-jsp-delim");
+    popFrame(stack);
+    return at + 2;
+}
+function scanTag(text, i, frame, stack, push) {
+    const isDir = frame.kind === "dir";
+    if (isDir && text.startsWith("%>", i)) {
+        push(i, i + 2, "fh-jsp-delim");
+        popFrame(stack);
+        return i + 2;
+    }
+    if (!isDir && text.startsWith("/>", i)) {
+        push(i, i + 2, "fh-jsp-delim");
+        popFrame(stack);
+        return i + 2;
+    }
+    if (!isDir && text[i] === ">") {
+        push(i, i + 1, "fh-jsp-delim");
+        popFrame(stack);
+        return i + 1;
+    }
+    if (frame.phase === "name") {
+        if (text[i] === " " || text[i] === "\t") {
+            let j = i + 1;
+            while (text[j] === " " || text[j] === "\t") {
+                j++;
+            }
+            push(i, j, "fh-jsp-plain");
+            return j;
+        }
+        const name = /^[A-Za-z_][\w:.-]*/.exec(text.slice(i));
+        if (name && name[0].length > 0) {
+            push(i, i + name[0].length, isDir ? "fh-jsp-keyword" : "fh-jsp-tag");
+            frame.phase = "after";
+            return i + name[0].length;
+        }
+        frame.phase = "after";
+    }
+    if (text[i] === " " || text[i] === "\t") {
+        let j = i + 1;
+        while (text[j] === " " || text[j] === "\t") {
+            j++;
+        }
+        push(i, j, "fh-jsp-plain");
+        return j;
+    }
+    if (text[i] === '"' || text[i] === "'") {
+        push(i, i + 1, "fh-jsp-string");
+        frame.phase = "after";
+        stack.push({ kind: "attr-string", quote: text[i] === "'" ? "'" : '"' });
+        return i + 1;
+    }
+    if (text[i] === "=") {
+        push(i, i + 1, "fh-jsp-plain");
+        frame.phase = "eq";
+        return i + 1;
+    }
+    let j = i;
+    while (j < text.length) {
+        const ch = text[j];
+        if (ch === " " || ch === "\t" || ch === "=" || ch === "<" || ch === ">" || ch === '"' || ch === "'" || ch === "/") {
+            break;
+        }
+        if (ch === "%" && text[j + 1] === ">") {
+            break;
+        }
+        j++;
+    }
+    if (j > i) {
+        const cls = frame.phase === "eq" ? "fh-jsp-string" : "fh-jsp-attr";
+        push(i, j, cls);
+        frame.phase = "after";
+        return j;
+    }
+    push(i, i + 1, "fh-jsp-plain");
+    return i + 1;
+}
+function scanAttrString(text, i, frame, stack, push) {
+    if (text.startsWith("\\${", i) || text.startsWith("\\#{", i)) {
+        push(i, Math.min(text.length, i + 3), "fh-jsp-string");
+        return Math.min(text.length, i + 3);
+    }
+    if ((text.startsWith("${", i) || text.startsWith("#{", i)) && text[i - 1] !== "\\") {
+        push(i, i + 2, "fh-jsp-delim");
+        stack.push({ kind: "el", depth: 1, quote: null });
+        return i + 2;
+    }
+    if (text[i] === "\\") {
+        push(i, Math.min(text.length, i + 2), "fh-jsp-string");
+        return Math.min(text.length, i + 2);
+    }
+    if (text[i] === frame.quote) {
+        push(i, i + 1, "fh-jsp-string");
+        popFrame(stack);
+        return i + 1;
+    }
+    let j = i + 1;
+    while (j < text.length) {
+        if (text[j] === frame.quote || text[j] === "\\") {
+            break;
+        }
+        if ((text[j] === "$" || text[j] === "#") && text[j + 1] === "{" && text[j - 1] !== "\\") {
+            break;
+        }
+        j++;
+    }
+    push(i, j, "fh-jsp-string");
+    return j;
+}
+function scanEl(text, i, frame, stack, push) {
+    if (frame.quote) {
+        if (text[i] === "\\") {
+            push(i, Math.min(text.length, i + 2), "fh-jsp-string");
+            return Math.min(text.length, i + 2);
+        }
+        if (text[i] === frame.quote) {
+            push(i, i + 1, "fh-jsp-string");
+            frame.quote = null;
+            return i + 1;
+        }
+        let j = i + 1;
+        while (j < text.length && text[j] !== frame.quote && text[j] !== "\\") {
+            j++;
+        }
+        push(i, j, "fh-jsp-string");
+        return j;
+    }
+    if (text[i] === '"' || text[i] === "'") {
+        frame.quote = text[i] === "'" ? "'" : '"';
+        push(i, i + 1, "fh-jsp-string");
+        return i + 1;
+    }
+    if (text.startsWith("${", i) || text.startsWith("#{", i)) {
+        push(i, i + 2, "fh-jsp-delim");
+        frame.depth++;
+        return i + 2;
+    }
+    if (text[i] === "{") {
+        push(i, i + 1, "fh-jsp-plain");
+        frame.depth++;
+        return i + 1;
+    }
+    if (text[i] === "}") {
+        frame.depth--;
+        if (frame.depth <= 0) {
+            push(i, i + 1, "fh-jsp-delim");
+            popFrame(stack);
+        }
+        else {
+            push(i, i + 1, "fh-jsp-plain");
+        }
+        return i + 1;
+    }
+    const ident = /^[A-Za-z_][\w]*/.exec(text.slice(i));
+    if (ident && ident[0].length > 0) {
+        const word = ident[0];
+        let cls = "fh-jsp-el";
+        if (EL_KEYWORDS.has(word)) {
+            cls = "fh-jsp-keyword";
+        }
+        else if (isCall(text, i + word.length)) {
+            cls = "fh-jsp-func";
+        }
+        push(i, i + word.length, cls);
+        return i + word.length;
+    }
+    const num = NUMBER_RE.exec(text.slice(i));
+    if (num) {
+        push(i, i + num[0].length, "fh-jsp-number");
+        return i + num[0].length;
+    }
+    if (text[i] === " " || text[i] === "\t") {
+        let j = i + 1;
+        while (text[j] === " " || text[j] === "\t") {
+            j++;
+        }
+        push(i, j, "fh-jsp-plain");
+        return j;
+    }
+    push(i, i + 1, "fh-jsp-plain");
+    return i + 1;
+}
+function closeScriptlet(text, i, stack, push) {
+    push(i, i + 2, "fh-jsp-delim");
+    popFrame(stack);
+    return i + 2;
+}
+function scanJava(text, i, frame, stack, push) {
+    var _a, _b;
+    if (frame.block) {
+        const commentEnd = text.indexOf("*/", i);
+        const scriptEnd = text.indexOf("%>", i);
+        if (scriptEnd >= 0 && (commentEnd < 0 || scriptEnd < commentEnd)) {
+            if (scriptEnd > i) {
+                push(i, scriptEnd, "fh-jsp-comment");
+            }
+            return closeScriptlet(text, scriptEnd, stack, push);
+        }
+        if (commentEnd < 0) {
+            if (i < text.length) {
+                push(i, text.length, "fh-jsp-comment");
+            }
+            return text.length;
+        }
+        push(i, commentEnd + 2, "fh-jsp-comment");
+        frame.block = false;
+        return commentEnd + 2;
+    }
+    if (frame.quote) {
+        if (text.startsWith("%\\>", i)) {
+            push(i, Math.min(text.length, i + 3), "fh-jsp-string");
+            return Math.min(text.length, i + 3);
+        }
+        if (text.startsWith("%>", i)) {
+            return closeScriptlet(text, i, stack, push);
+        }
+        if (text[i] === "\\") {
+            push(i, Math.min(text.length, i + 2), "fh-jsp-string");
+            return Math.min(text.length, i + 2);
+        }
+        if (text[i] === frame.quote) {
+            push(i, i + 1, "fh-jsp-string");
+            frame.quote = null;
+            return i + 1;
+        }
+        let j = i + 1;
+        while (j < text.length && text[j] !== frame.quote && text[j] !== "\\" && !text.startsWith("%>", j)) {
+            j++;
+        }
+        push(i, j, "fh-jsp-string");
+        return j;
+    }
+    if (text.startsWith("%\\>", i)) {
+        push(i, Math.min(text.length, i + 3), "fh-jsp-plain");
+        return Math.min(text.length, i + 3);
+    }
+    if (text.startsWith("%>", i)) {
+        return closeScriptlet(text, i, stack, push);
+    }
+    if (text[i] === " " || text[i] === "\t") {
+        let j = i + 1;
+        while (text[j] === " " || text[j] === "\t") {
+            j++;
+        }
+        push(i, j, "fh-jsp-plain");
+        return j;
+    }
+    if (text.startsWith("//", i)) {
+        const scriptEnd = text.indexOf("%>", i);
+        if (scriptEnd >= 0) {
+            push(i, scriptEnd, "fh-jsp-comment");
+            return closeScriptlet(text, scriptEnd, stack, push);
+        }
+        push(i, text.length, "fh-jsp-comment");
+        return text.length;
+    }
+    if (text.startsWith("/*", i)) {
+        frame.block = true;
+        push(i, i + 2, "fh-jsp-comment");
+        return i + 2;
+    }
+    if (text[i] === '"' || text[i] === "'") {
+        frame.quote = text[i] === "'" ? "'" : '"';
+        push(i, i + 1, "fh-jsp-string");
+        return i + 1;
+    }
+    if (text.startsWith("non-sealed", i) && !/[\w$]/.test((_a = text[i + 10]) !== null && _a !== void 0 ? _a : "")) {
+        push(i, i + 10, "fh-jsp-keyword");
+        return i + 10;
+    }
+    if (text[i] === "@") {
+        const note = /^@[A-Za-z_][\w]*/.exec(text.slice(i));
+        if (note) {
+            push(i, i + note[0].length, "fh-jsp-delim");
+            return i + note[0].length;
+        }
+    }
+    const ident = /^[A-Za-z_$][\w$]*/.exec(text.slice(i));
+    if (ident && ident[0].length > 0) {
+        const word = ident[0];
+        let cls = "fh-jsp-var";
+        if (JAVA_TYPES.has(word) || IMPLICIT.has(word) || /^[A-Z]/.test(word)) {
+            cls = "fh-jsp-type";
+        }
+        else if (JAVA_KEYWORDS.has(word)) {
+            cls = "fh-jsp-keyword";
+        }
+        else if (isCall(text, i + word.length)) {
+            cls = "fh-jsp-func";
+        }
+        push(i, i + word.length, cls);
+        return i + word.length;
+    }
+    const num = NUMBER_RE.exec(text.slice(i));
+    if (num && !/[A-Za-z_$]/.test((_b = text[i - 1]) !== null && _b !== void 0 ? _b : "")) {
+        push(i, i + num[0].length, "fh-jsp-number");
+        return i + num[0].length;
+    }
+    push(i, i + 1, "fh-jsp-plain");
+    return i + 1;
+}
+/** 切一行。state 跨行保持，用来接住没写完的脚本、注释和标签。 */
+function scanJspLine(text, state) {
+    const stack = state.stack.map((frame) => (Object.assign({}, frame)));
+    if (stack.length === 0) {
+        stack.push({ kind: "html" });
+    }
+    const pieces = [];
+    const push = (from, to, cls) => {
+        if (to <= from) {
+            return;
+        }
+        const prev = pieces[pieces.length - 1];
+        if (prev && prev.cls === cls && prev.to === from) {
+            prev.to = to;
+            return;
+        }
+        pieces.push({ from, to, cls });
+    };
+    let i = 0;
+    const n = text.length;
+    let guard = 0;
+    while (i < n && guard <= n + 8) {
+        guard++;
+        const before = i;
+        const frame = stack[stack.length - 1];
+        if (frame.kind === "html") {
+            i = scanHtml(text, i, stack, push);
+        }
+        else if (frame.kind === "tag" || frame.kind === "dir") {
+            i = scanTag(text, i, frame, stack, push);
+        }
+        else if (frame.kind === "html-comment") {
+            i = consumeUntil(text, i, "-->", "fh-jsp-comment", stack, push);
+        }
+        else if (frame.kind === "jsp-comment") {
+            i = consumeUntil(text, i, "--%>", "fh-jsp-comment", stack, push);
+        }
+        else if (frame.kind === "cdata") {
+            i = consumeUntil(text, i, "]]>", "fh-jsp-string", stack, push);
+        }
+        else if (frame.kind === "pi") {
+            i = scanPi(text, i, stack, push);
+        }
+        else if (frame.kind === "java") {
+            i = scanJava(text, i, frame, stack, push);
+        }
+        else if (frame.kind === "el") {
+            i = scanEl(text, i, frame, stack, push);
+        }
+        else if (frame.kind === "attr-string") {
+            i = scanAttrString(text, i, frame, stack, push);
+        }
+        if (i <= before) {
+            push(before, Math.min(n, before + 1), "fh-jsp-plain");
+            i = before + 1;
+        }
+    }
+    return { pieces, state: { stack } };
+}
+function buildDecorations$1(view) {
+    const builder = new state.RangeSetBuilder();
+    const doc = view.state.doc;
+    let fence = null;
+    let state$1 = freshState();
+    for (let lineNo = 1; lineNo <= doc.lines; lineNo++) {
+        const line = doc.line(lineNo);
+        const found = fenceAt(line.text);
+        if (fence) {
+            if (found && found.char === fence.char && found.lang === "") {
+                fence = null;
+                state$1 = freshState();
+                continue;
+            }
+            if (!isJspLang(fence.lang)) {
+                continue;
+            }
+            builder.add(line.from, line.from, jspLine);
+            const scanned = scanJspLine(line.text, state$1);
+            state$1 = scanned.state;
+            for (const piece of scanned.pieces) {
+                builder.add(line.from + piece.from, line.from + piece.to, tokenMark(piece.cls));
+            }
+            continue;
+        }
+        if (found) {
+            fence = found;
+            state$1 = freshState();
+        }
+    }
+    return builder.finish();
+}
+const jspHighlightPlugin = view.ViewPlugin.fromClass(class {
+    constructor(view) {
+        this.decorations = buildDecorations$1(view);
+    }
+    update(update) {
+        if (update.docChanged) {
+            this.decorations = buildDecorations$1(update.view);
+        }
+    }
+}, {
+    decorations: (value) => value.decorations,
+});
+/** 源码模式：JSP 模板、脚本和 EL 分开上色。 */
+function createJspHighlightExtension() {
+    return jspHighlightPlugin;
+}
+function wordPattern(words) {
+    const body = [...words].sort((a, b) => b.length - a.length).join("|");
+    return new RegExp(`\\b(?:${body})\\b`);
+}
+function minimalJavaGrammar() {
+    return {
+        comment: [
+            { pattern: /\/\*[\s\S]*?(?:\*\/|$)/, greedy: true },
+            { pattern: /(^|[^\\])\/\/.*/, lookbehind: true, greedy: true },
+        ],
+        string: {
+            pattern: /"(?:\\[\s\S]|[^"\\\r\n])*"|'(?:\\[\s\S]|[^'\\\r\n])'/,
+            greedy: true,
+        },
+        keyword: wordPattern(JAVA_KEYWORDS),
+        number: NUMBER_BODY,
+        function: /\b[A-Za-z_]\w*(?=\s*\()/,
+        "class-name": /\b[A-Z][\w]*/,
+    };
+}
+/** 阅读视图：注册 jsp / jspx。有 Java 语法时嵌进去。 */
+function registerJspPrismLanguages(prism) {
+    const java = prism.languages.java;
+    const javaGrammar = java && typeof java === "object" ? java : minimalJavaGrammar();
+    const grammar = {
+        comment: [
+            { pattern: /<%--[\s\S]*?--%>/, greedy: true },
+            { pattern: /<!--[\s\S]*?-->/, greedy: true },
+        ],
+        directive: {
+            pattern: /<%@[\s\S]*?%>/,
+            greedy: true,
+            inside: {
+                punctuation: /<%@|%>/,
+                string: { pattern: /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/, greedy: true },
+                keyword: /\b(?:page|include|taglib|tag|attribute|variable|tagdir|uri|prefix|language|contentType|pageEncoding|import|session|buffer|autoFlush|isThreadSafe|info|errorPage|isErrorPage|extends)\b/,
+                "attr-name": /[^\s=<>"'/]+(?=\s*=)/,
+            },
+        },
+        expression: {
+            pattern: /<%=[\s\S]*?%>/,
+            greedy: true,
+            inside: {
+                punctuation: /<%=|%>/,
+                rest: javaGrammar,
+            },
+        },
+        declaration: {
+            pattern: /<%![\s\S]*?%>/,
+            greedy: true,
+            inside: {
+                punctuation: /<%!|%>/,
+                rest: javaGrammar,
+            },
+        },
+        scriptlet: {
+            pattern: /<%(?![@=!%-])[\s\S]*?%>/,
+            greedy: true,
+            inside: {
+                punctuation: /<%|%>/,
+                rest: javaGrammar,
+            },
+        },
+        el: {
+            pattern: /[$]\{[\s\S]*?\}|#\{[\s\S]*?\}/,
+            greedy: true,
+            inside: {
+                string: { pattern: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/, greedy: true },
+                keyword: wordPattern(EL_KEYWORDS),
+                punctuation: /[()[\].]/,
+            },
+        },
+        cdata: {
+            pattern: /<!\[CDATA\[[\s\S]*?\]\]>/,
+            greedy: true,
+            alias: "string",
+        },
+        tag: {
+            pattern: /<\/?[A-Za-z][\w:.-]*\b/,
+            inside: {
+                punctuation: /^<\/?/,
+                tag: /[\w:.-]+/,
+            },
+        },
+        "attr-value": {
+            pattern: /=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+)/,
+            inside: {
+                punctuation: /^=/,
+                string: /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/,
+            },
+        },
+        "attr-name": /[^\s>"'=/]+(?=\s*=)/,
+        entity: {
+            pattern: ENTITY_BODY,
+            alias: "string",
+        },
+        punctuation: /[<>/]/,
+    };
+    for (const lang of JSP_LANGS) {
+        prism.languages[lang] = grammar;
     }
 }
 
@@ -4204,6 +5986,27 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 editorCallback: (editor) => convertHtmlTableToMarkdown(editor),
             });
             this.addCommand({
+                id: "to-fraction",
+                name: "转为 LaTeX 分数",
+                editorCallback: (editor) => convertSelectionToFraction(editor),
+            });
+            this.addCommand({
+                id: "add-annotation",
+                name: "高亮并批注",
+                editorCallback: (editor) => promptAnnotation(this.app, editor),
+                hotkeys: [{ modifiers: ["Mod", "Alt"], key: "h" }],
+            });
+            this.addCommand({
+                id: "edit-annotation",
+                name: "编辑批注",
+                editorCallback: (editor) => editAnnotationAtCursor(this.app, editor),
+            });
+            this.addCommand({
+                id: "remove-annotation",
+                name: "移除批注",
+                editorCallback: (editor) => removeAnnotationAtCursor(editor),
+            });
+            this.addCommand({
                 id: "copy-block-link",
                 name: "复制块链接",
                 editorCallback: (editor, view) => {
@@ -4240,6 +6043,8 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             this.registerEditorExtension(createAsmHighlightExtension());
             this.registerEditorExtension(createCppHighlightExtension());
             this.registerEditorExtension(createSqlHighlightExtension());
+            this.registerEditorExtension(createJspHighlightExtension());
+            this.registerEditorExtension(createAnnotationExtension());
             this.registerEditorExtension(createHtmlStyleExtension());
             void this.registerPrismExtraLanguages();
             this.toolbarManager = new EditorToolbarManager(this);
@@ -4249,8 +6054,10 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             yield this.loadDb();
             this.registerEvent(this.app.workspace.on("file-open", (file) => this.restoreState(file)));
             this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
+                addAnnotationMenuItems(menu, this.app, editor);
                 if (!view.file)
                     return;
+                menu.addSeparator();
                 addBlockLinkMenuItems(menu, this.app, editor, view.file);
             }));
             this.registerEvent(this.app.workspace.on("quit", () => this.writeDb()));
@@ -4272,6 +6079,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 window.setTimeout(() => this.restoreState(), LAYOUT_READY_RESTORE_DELAY);
             });
             this.restoreState();
+            installAnnotationHover(this);
             this.applyTyporaMode();
             this.applyTableStable();
             this.setupTableStripeRefresh();
@@ -4280,6 +6088,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
     }
     onunload() {
         var _a, _b;
+        destroyAnnotationTooltip();
         this.writeDb();
         applyTableStableStyle(false);
         const bodyEl = document.body;
@@ -4476,6 +6285,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                     registerAsmPrismLanguages(prism);
                     registerCppPrismLanguages(prism);
                     registerSqlPrismLanguages(prism);
+                    registerJspPrismLanguages(prism);
                 }
             }
             catch (_a) {
@@ -4500,13 +6310,11 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                     .filter((id) => id !== "dunhao");
             }
             const validIds = new Set(ALL_TOOLBAR_BUTTONS);
-            // 布局大改时一次性切到精简默认（未显示的进「更多」）
-            const needsPersist = layoutVersion < TOOLBAR_LAYOUT_VERSION;
-            if (needsPersist) {
-                this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
-            }
-            else if (!Array.isArray(this.settings.toolbarButtonOrder) ||
-                this.settings.toolbarButtonOrder.length === 0) {
+            // 版本 < 2：一次性切到精简默认。之后的版本只追加新按钮，避免打乱已有排序。
+            const previousLayout = layoutVersion;
+            if (!Array.isArray(this.settings.toolbarButtonOrder) ||
+                this.settings.toolbarButtonOrder.length === 0 ||
+                previousLayout < 2) {
                 this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
             }
             else {
@@ -4514,9 +6322,19 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 if (this.settings.toolbarButtonOrder.length === 0) {
                     this.settings.toolbarButtonOrder = [...DEFAULT_SETTINGS.toolbarButtonOrder];
                 }
+                else if (previousLayout < TOOLBAR_LAYOUT_VERSION) {
+                    for (const id of ["to-fraction", "annotate"]) {
+                        if (!this.settings.toolbarButtonOrder.includes(id)) {
+                            this.settings.toolbarButtonOrder.push(id);
+                        }
+                    }
+                }
+            }
+            if (previousLayout < TOOLBAR_LAYOUT_VERSION && !this.settings.codeLanguages.includes("jsp")) {
+                this.settings.codeLanguages.push("jsp");
             }
             this.settings.toolbarLayoutVersion = TOOLBAR_LAYOUT_VERSION;
-            if (needsPersist) {
+            if (previousLayout < TOOLBAR_LAYOUT_VERSION) {
                 yield this.saveData(this.settings);
             }
         });

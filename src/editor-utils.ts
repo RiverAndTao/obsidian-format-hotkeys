@@ -1,4 +1,5 @@
 import { Editor } from "obsidian";
+import { convertTextToLatexFraction } from "./fraction";
 import { flattenInlineToBold, selectionAlreadyBoldWrapped, stripRedMarkup } from "./inline-format";
 
 const UNDO_ORIGIN = "format-hotkeys";
@@ -689,5 +690,10 @@ export function flattenSelectionToBold(editor: Editor): void {
 /** 去掉选区内变红；带粗体的红字保留为 **加粗** */
 export function removeRedInSelection(editor: Editor): void {
     rewriteSelection(editor, stripRedMarkup);
+}
+
+/** 将选区中的 a/b 转为 LaTeX 分数 \frac{a}{b} */
+export function convertSelectionToFraction(editor: Editor): void {
+    rewriteSelection(editor, convertTextToLatexFraction);
 }
 

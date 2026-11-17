@@ -15,7 +15,9 @@ import {
     removeRedInSelection,
     toggleRedUnderline,
     toggleRedWavy,
+    convertSelectionToFraction,
 } from "./editor-utils";
+import { promptAnnotation } from "./annotation";
 import { LanguageInputModal } from "./language-input-modal";
 import {
     ALL_TOOLBAR_BUTTONS,
@@ -41,6 +43,7 @@ const EDITOR_ACTIONS: Partial<Record<ToolbarButtonId, (editor: Editor) => void>>
     "normalize-punctuation": normalizePunctuation,
     "remove-callout": removeCallout,
     "table-to-md": convertHtmlTableToMarkdown,
+    "to-fraction": convertSelectionToFraction,
 };
 
 export class EditorToolbarManager {
@@ -120,6 +123,9 @@ export class EditorToolbarManager {
             case "callout":
                 this.addCalloutButton(view);
                 return;
+            case "annotate":
+                this.addActionButton(view, "批注", (editor) => promptAnnotation(this.plugin.app, editor));
+                return;
             default: {
                 const action = EDITOR_ACTIONS[buttonId];
                 if (action) {
@@ -143,6 +149,9 @@ export class EditorToolbarManager {
             case "callout":
                 if (anchor) this.showCalloutMenu(anchor, view);
                 else wrapCallout(view.editor, "tip");
+                return;
+            case "annotate":
+                promptAnnotation(this.plugin.app, view.editor);
                 return;
             default: {
                 const action = EDITOR_ACTIONS[buttonId];
