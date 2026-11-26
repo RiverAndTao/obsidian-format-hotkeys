@@ -94,6 +94,7 @@ const TYPORA_STYLE_KEYS = [
     "--typora-link-color",
     "--typora-inline-code-color",
     "--typora-list-marker-color",
+    "--list-marker-color",
     "--typora-bold-color",
     "--typora-active-line-bg",
 ] as const;
@@ -161,7 +162,19 @@ function writeTyporaVars(el: HTMLElement, style: TyporaStyleSettings): void {
     el.style.setProperty("--typora-quote-color", style.quoteColor || "var(--text-muted)");
     el.style.setProperty("--typora-link-color", style.linkColor || "var(--link-color)");
     el.style.setProperty("--typora-inline-code-color", style.inlineCodeColor || "var(--code-normal, var(--text-normal))");
-    el.style.setProperty("--typora-list-marker-color", style.listMarkerColor || "var(--text-normal)");
+    const markerColor = style.listMarkerColor?.trim();
+    el.style.setProperty(
+        "--typora-list-marker-color",
+        markerColor || "var(--list-marker-color, var(--text-muted))"
+    );
+    // 自定义时覆盖 Obsidian 原生的 --list-marker-color；未填写则跟随主题圆点色。
+    if (markerColor) {
+        el.style.setProperty("--list-marker-color", markerColor);
+        document.documentElement.style.setProperty("--list-marker-color", markerColor);
+    } else {
+        el.style.removeProperty("--list-marker-color");
+        document.documentElement.style.removeProperty("--list-marker-color");
+    }
     el.style.setProperty("--typora-bold-color", style.boldColor || "var(--bold-color, var(--text-normal))");
     el.style.setProperty(
         "--typora-active-line-bg",

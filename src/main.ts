@@ -1,4 +1,4 @@
-import { Editor, EventRef, MarkdownView, Plugin, TFile } from "obsidian";
+import { Editor, EventRef, MarkdownView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import * as ObsidianApi from "obsidian";
 import {
     toggleHeading,
@@ -32,7 +32,6 @@ import { TyporaConfigModal } from "./typora-config-modal";
 import { readViewState, applyViewState, statesEqual, EditorStateSnapshot } from "./editor-state";
 import { applyTableStableStyle } from "./table-stable";
 import { applyTyporaStyleVars, clearTyporaStyleVars, mergeTyporaStyle } from "./typora-style";
-import { createParenListExtension, refreshParenListDecorations } from "./typora-paren-list";
 import { createAsmHighlightExtension, refreshAsmHighlight, registerAsmPrismLanguages } from "./asm-highlight";
 import { createCppHighlightExtension, registerCppPrismLanguages } from "./cpp-highlight";
 import { createSqlHighlightExtension, refreshSqlHighlight, registerSqlPrismLanguages } from "./sql-highlight";
@@ -66,13 +65,15 @@ const RED_CLOSE = "</font>";
  * 编辑进度保存/恢复（参考 MIT 协议插件 dy-sh/obsidian-remember-cursor-position 的成熟实现）：
  * - 保存：每 100ms 轮询当前文件的光标/滚动，变化即写入内存 db（任何时刻都最新）；
  * - 落盘：每 5s 周期写独立 json 文件，Obsidian 退出（quit 事件）与插件卸载时再强制写一次；
- * - 恢复：监听 file-open 事件，延迟等编辑器就绪后套用状态；1.5s 防重 guard 避免反复跳转；
- * - 从链接跳转（存在 .is-flashing 元素）时不覆盖目标位置。
+ * - 恢复：监听 file-open 事件，延迟等编辑器就绪后套用状态；
+ * - 会话内再按“窗格(leaf)”记一层，双栏打开同一/不同文件时互不覆盖；
+ * - 恢复是异步的：用 token + 视图校验，快速连开多个 md 或先开脑图再开 md 时，
+ *   过期的那次恢复会被丢弃，绝不会把 A 文件的位置套到 B 文件的视图上；
+ * - 从链接跳转（存在 .is-flashing 元素）时不覆盖目标位置；悬停预览不记录也不恢复。
  */
 const CHECK_INTERVAL_MS = 100;
 const DB_FLUSH_INTERVAL_MS = 5000;
 const RESTORE_DELAY_MS = 100;
-const RESTORE_GUARD_WINDOW_MS = 1500;
 const LAYOUT_READY_RESTORE_DELAY = 600;
 
 export default class FormatHotkeysPlugin extends Plugin {
@@ -84,11 +85,14 @@ export default class FormatHotkeysPlugin extends Plugin {
     private db: Record<string, EditorStateSnapshot> = {};
     private lastSavedDbJson = "";
     private dbPath = "";
-    private lastLoadedFileName = "";
-    private lastState: EditorStateSnapshot = {};
-    private lastRestoredKey = "";
-    private lastRestoredAt = 0;
-    private loadingFile = false;
+    /** 会话内按窗格(leaf)记忆：同一文件开在两个窗格时不互相覆盖 */
+    private paneState = new Map<string, { path: string; state: EditorStateSnapshot }>();
+    /** 窗格级恢复序号：序号变了说明有更新的打开/恢复请求，旧的这次作废 */
+    private paneRestoreToken = new Map<string, number>();
+    /** 正在恢复的文件：这段时间不要把“还在顶部”的光标写回数据库 */
+    private pendingRestorePaths = new Set<string>();
+    private leafIds = new WeakMap<WorkspaceLeaf, string>();
+    private leafSeq = 0;
 
     async onload() {
         await this.loadSettings();
@@ -263,7 +267,6 @@ export default class FormatHotkeysPlugin extends Plugin {
 
         this.addSettingTab(new FormatHotkeysSettingTab(this.app, this));
 
-        this.registerEditorExtension(createParenListExtension());
         this.registerEditorExtension(createAsmHighlightExtension());
         this.registerEditorExtension(createCppHighlightExtension());
         this.registerEditorExtension(createSqlHighlightExtension());
@@ -280,6 +283,7 @@ export default class FormatHotkeysPlugin extends Plugin {
         await this.loadDb();
 
         this.registerEvent(this.app.workspace.on("file-open", (file) => this.restoreState(file)));
+        this.registerEvent(this.app.workspace.on("layout-change", () => this.prunePaneState()));
         this.registerEvent(
             this.app.workspace.on("editor-menu", (menu, editor, view) => {
                 addAnnotationMenuItems(menu, this.app, editor);
@@ -294,9 +298,13 @@ export default class FormatHotkeysPlugin extends Plugin {
         // 文件重命名/删除时同步迁移或清理位置记录
         this.registerEvent(
             this.app.vault.on("rename", (file, oldPath) => {
-                if (file.path !== oldPath) {
+                if (file.path === oldPath) return;
+                if (Object.prototype.hasOwnProperty.call(this.db, oldPath)) {
                     this.db[file.path] = this.db[oldPath];
                     delete this.db[oldPath];
+                }
+                for (const entry of this.paneState.values()) {
+                    if (entry.path === oldPath) entry.path = file.path;
                 }
             })
         );
@@ -312,9 +320,12 @@ export default class FormatHotkeysPlugin extends Plugin {
 
         // 恢复：布局就绪后延迟强制恢复一次（覆盖 workspace 加载场景）
         this.app.workspace.onLayoutReady(() => {
-            window.setTimeout(() => this.restoreState(), LAYOUT_READY_RESTORE_DELAY);
+            window.setTimeout(
+                () => this.restoreState(this.app.workspace.getActiveFile()),
+                LAYOUT_READY_RESTORE_DELAY
+            );
         });
-        this.restoreState();
+        this.restoreState(this.app.workspace.getActiveFile());
 
         installAnnotationHover(this);
         this.applyTyporaMode();
@@ -346,7 +357,6 @@ export default class FormatHotkeysPlugin extends Plugin {
         applyTyporaStyleVars(bodyEl, this.settings.typora);
         bodyEl.toggleClass("typora-mode-active", this.settings.typoraMode);
         bodyEl.toggleClass("typora-hide-syntax", this.settings.typoraMode && this.settings.typora.hideSyntax);
-        refreshParenListDecorations(this.app);
         refreshAsmHighlight(this.app);
         refreshSqlHighlight(this.app);
         refreshHtmlStyleDecorations(this.app);
@@ -358,76 +368,163 @@ export default class FormatHotkeysPlugin extends Plugin {
         applyTableStableStyle(this.settings.tableWidthStable);
     }
 
-    /** 轮询：当前文件位置发生变化时写入内存 db */
-    private checkStateChanged(): void {
-        if (!this.settings.restoreEditorPosition) return;
-        // 悬停预览窗口（Page preview / Hover Editor）是瞬态视图，绝不记录位置
-        if (this.isHoverPopoverActive()) return;
-        const fileName = this.app.workspace.getActiveFile()?.path;
-        // 等待文件加载完成，且只记录当前正在浏览的文件
-        if (!fileName || !this.lastLoadedFileName || fileName !== this.lastLoadedFileName || this.loadingFile) {
-            return;
+    /** 给 leaf 分配稳定的会话内 id（不依赖 Obsidian 内部字段） */
+    private leafKey(leaf: WorkspaceLeaf): string {
+        let id = this.leafIds.get(leaf);
+        if (!id) {
+            this.leafSeq += 1;
+            id = `leaf${this.leafSeq}`;
+            this.leafIds.set(leaf, id);
         }
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!view) return;
-        const st = readViewState(view);
-        const hadPrior = Object.keys(this.lastState).length > 0;
-        if (!hadPrior) {
-            this.lastState = st;
-            return;
+        return id;
+    }
+
+    private leafFilePath(leaf: WorkspaceLeaf): string {
+        const view = leaf.view;
+        if (view instanceof MarkdownView && view.file) return view.file.path;
+        const state = leaf.getViewState().state as { file?: string } | null;
+        return state?.file ?? "";
+    }
+
+    /**
+     * 刚打开的文件所在窗格。
+     * 活动窗格优先：同一文件开了两栏时，不能套到上一个焦点窗格上。
+     */
+    private findLeafForPath(path: string): WorkspaceLeaf | null {
+        const active = this.app.workspace.activeLeaf;
+        if (active && this.leafFilePath(active) === path) return active;
+
+        let fresh: WorkspaceLeaf | null = null;
+        let matched: WorkspaceLeaf | null = null;
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            if (this.leafFilePath(leaf) !== path) return;
+            if (!matched) matched = leaf;
+            const pane = this.paneState.get(this.leafKey(leaf));
+            if (!fresh && (!pane || pane.path !== path)) fresh = leaf;
+        });
+        return fresh ?? matched;
+    }
+
+    /** 某个 MarkdownView 所在的 leaf */
+    private leafOfView(view: MarkdownView): WorkspaceLeaf | null {
+        let found: WorkspaceLeaf | null = null;
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            if (!found && leaf.view === view) found = leaf;
+        });
+        return found;
+    }
+
+    /** 悬停预览（Page preview / Hover Editor）等瞬态视图：既不记录也不恢复 */
+    private isTransientView(view: MarkdownView): boolean {
+        const container = view.containerEl;
+        return Boolean(container.closest(".hover-popover") || container.closest(".hover-editor"));
+    }
+
+    /** 关闭窗格后清理该窗格的会话记录，避免表无限增长 */
+    private prunePaneState(): void {
+        const alive = new Set<string>();
+        this.app.workspace.iterateAllLeaves((leaf) => alive.add(this.leafKey(leaf)));
+        for (const key of [...this.paneState.keys()]) {
+            if (!alive.has(key)) this.paneState.delete(key);
         }
-        if (!statesEqual(st, this.lastState)) {
-            this.db[fileName] = { ...st, lastModified: Date.now() };
-            this.lastState = st;
+        for (const key of [...this.paneRestoreToken.keys()]) {
+            if (!alive.has(key)) this.paneRestoreToken.delete(key);
         }
     }
 
-    /** 文件打开/激活时恢复其保存的进度 */
-    private async restoreState(file?: TFile | null): Promise<void> {
-        const fileName = this.app.workspace.getActiveFile()?.path;
-        // 悬停预览窗口不恢复位置；若预览了某个文件，顺带清掉它的记录避免污染
-        if (this.isHoverPopoverActive()) {
-            if (fileName) delete this.db[fileName];
-            return;
-        }
-        if (fileName && this.loadingFile && this.lastLoadedFileName === fileName) {
-            return;
-        }
+    private stateForPane(key: string, path: string): EditorStateSnapshot {
+        const pane = this.paneState.get(key);
+        if (pane && pane.path === path) return pane.state;
+        return this.db[path] ?? {};
+    }
 
-        // 1.5s 防重 guard：同一个 leaf+file 刚恢复过就不再重复跳
-        const leaf = this.app.workspace.getMostRecentLeaf();
-        const leafId = (leaf as unknown as { id?: string }).id ?? "";
-        const leafFile = (leaf?.getViewState().state as { file?: string } | null)?.file ?? "";
-        const guardKey = `${leafId}:${leafFile}`;
-        if (fileName && this.lastRestoredKey === guardKey && Date.now() - this.lastRestoredAt < RESTORE_GUARD_WINDOW_MS) {
-            return;
-        }
+    private hasRestorableState(state: EditorStateSnapshot): boolean {
+        return Boolean(state.cursor) || state.scroll !== undefined;
+    }
 
-        this.loadingFile = true;
-        if (this.lastLoadedFileName !== fileName) {
-            this.lastState = {};
-            this.lastLoadedFileName = fileName ?? "";
-            let st: EditorStateSnapshot = {};
-            if (fileName && this.settings.restoreEditorPosition) {
-                st = this.db[fileName] ?? {};
-                if (Object.keys(st).length > 0) {
-                    await this.delay(RESTORE_DELAY_MS);
-                    // 从链接/搜索跳转时 Obsidian 会高亮目标，此时不覆盖
-                    const flashing = this.app.workspace.containerEl.querySelector(".is-flashing");
-                    if (!flashing) {
-                        await this.delay(10);
-                        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-                        if (view) {
-                            applyViewState(view, st);
-                        }
-                    }
+    /** 轮询：当前文件位置发生变化时写入内存 db */
+    private checkStateChanged(): void {
+        if (!this.settings.restoreEditorPosition) return;
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view || !view.file) return;
+        // 悬停预览窗口（Page preview / Hover Editor）是瞬态视图，绝不记录位置
+        if (this.isTransientView(view)) return;
+        const leaf = this.leafOfView(view);
+        if (!leaf) return;
+        const key = this.leafKey(leaf);
+        // 该窗格正在恢复位置：跳过，否则会把“恢复前的顶部位置”写回数据库
+        if (this.paneRestoreToken.has(key)) return;
+
+        const path = view.file.path;
+        if (this.pendingRestorePaths.has(path)) return;
+        const st = readViewState(view);
+        const prev = this.paneState.get(key);
+        this.paneState.set(key, { path, state: st });
+        // 同一窗格同一文件、位置没变 → 不需要写库
+        if (prev && prev.path === path && statesEqual(prev.state, st)) return;
+        this.db[path] = { ...st, lastModified: Date.now() };
+    }
+
+    /**
+     * 文件打开时恢复该窗格的进度。
+     * 延迟套用前会再核对窗格和文件路径。
+     * 快速连开两个 md，或先开脑图再开 md 时，过期的那次恢复会被丢掉。
+     */
+    private restoreState(file?: TFile | null): void {
+        if (!this.settings.restoreEditorPosition) return;
+        const path = file?.path;
+        if (!path) return;
+        this.pendingRestorePaths.add(path);
+
+        const leaf = this.findLeafForPath(path);
+        if (!leaf) {
+            // 窗格状态可能还没切过来，稍后再认一次
+            window.setTimeout(() => {
+                const later = this.findLeafForPath(path);
+                if (!later || (later.view instanceof MarkdownView && this.isTransientView(later.view))) {
+                    this.pendingRestorePaths.delete(path);
+                    return;
                 }
-            }
-            this.lastRestoredKey = guardKey;
-            this.lastRestoredAt = Date.now();
-            this.lastState = st;
+                this.scheduleRestore(later, path);
+            }, RESTORE_DELAY_MS);
+            return;
         }
-        this.loadingFile = false;
+        if (leaf.view instanceof MarkdownView && this.isTransientView(leaf.view)) {
+            this.pendingRestorePaths.delete(path);
+            return;
+        }
+        this.scheduleRestore(leaf, path);
+    }
+
+    private scheduleRestore(leaf: WorkspaceLeaf, path: string): void {
+        const key = this.leafKey(leaf);
+        const token = (this.paneRestoreToken.get(key) ?? 0) + 1;
+        this.paneRestoreToken.set(key, token);
+        window.setTimeout(() => this.applyScheduledRestore(leaf, key, path, token), RESTORE_DELAY_MS);
+    }
+
+    private applyScheduledRestore(leaf: WorkspaceLeaf, key: string, path: string, token: number): void {
+        if (this.paneRestoreToken.get(key) !== token) return;
+        this.paneRestoreToken.delete(key);
+        this.pendingRestorePaths.delete(path);
+
+        const view = leaf.view;
+        // 脑图 / Canvas / PDF 等没有文本光标，清掉该窗格记录
+        if (!(view instanceof MarkdownView)) {
+            this.paneState.delete(key);
+            return;
+        }
+        if ((view.file?.path ?? "") !== path || this.isTransientView(view)) return;
+        // 从链接/搜索跳转时 Obsidian 会高亮目标，此时不覆盖
+        if (view.containerEl.querySelector(".is-flashing")) return;
+
+        const target = this.stateForPane(key, path);
+        if (!this.hasRestorableState(target)) {
+            this.paneState.set(key, { path, state: {} });
+            return;
+        }
+        applyViewState(view, target);
+        this.paneState.set(key, { path, state: target });
     }
 
     /** 从独立 json 文件读取历史进度 */
@@ -451,13 +548,6 @@ export default class FormatHotkeysPlugin extends Plugin {
         this.lastSavedDbJson = JSON.stringify(this.db);
     }
 
-    /** 当前激活视图是否为悬停预览窗口（Page preview / Hover Editor 等瞬态视图） */
-    private isHoverPopoverActive(): boolean {
-        const container = this.app.workspace.getActiveViewOfType(MarkdownView)?.containerEl;
-        if (!container) return false;
-        return container.closest(".hover-popover") !== null || container.closest(".hover-editor") !== null;
-    }
-
     /** 把内存 db 写入独立 json 文件（仅内容变化时写） */
     private async writeDb(): Promise<void> {
         try {
@@ -473,10 +563,6 @@ export default class FormatHotkeysPlugin extends Plugin {
         } catch (e) {
             console.error("Format Hotkeys: 写入光标位置数据库失败", e);
         }
-    }
-
-    private delay(ms: number): Promise<void> {
-        return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
     private setupTableStripeRefresh(): void {

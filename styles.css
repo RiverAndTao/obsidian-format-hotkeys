@@ -4,7 +4,7 @@
     --typora-line-height: 1.6;
     --typora-content-width: 1200px;
     --typora-line-padding: 0.15em;
-    --typora-list-marker-color: var(--text-normal);
+    --typora-list-marker-color: var(--list-marker-color, var(--text-muted));
     --typora-h1-size: 1.48em;
     --typora-h2-size: 1.26em;
     --typora-h3-size: 1.12em;
@@ -213,250 +213,27 @@ body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6 .cm-lin
 }
 
 /* =====================================================
-   第二部分：列表（对照 Typora 截图一比一）
-   - 空格 → 实心圆点 ●（在「-」位置绘制，不依赖 list-bullet）
-   1. 空格 → 显示源码数字 1. 2.
-   层级：二级圆点对齐一级正文起点
+   第二部分：列表
+   「-」不再由插件自绘：缩进层级沿用 Obsidian 原生
+   （--list-indent，每级 2.25em；标记色取 --list-marker-color，
+   主题色优先，Typora 配置里自定义的标记色会覆盖主题色）。
+   仅在原生的 0.75em 基础上再向右推 1.5em，让列表整体离左边远一点。
+   括号编号 (1) / （1）不做任何处理，按普通正文显示。
    ===================================================== */
 
 body.typora-mode-active .markdown-source-view.mod-cm6 {
-    /*
-     * 每一级整行累计右移 1em：
-     * 核心要点（0）→ 定义/地位/关系/注意（1em）
-     *             → 时钟频率/机器周期/指令周期（2em）
-     */
-    --typora-ul-pad: 1em;
-    --typora-ul-marker: 0.75em;
-    --typora-ul-gap: 0.25em;
-    --typora-list-step: 1em;
-    --typora-list-indent: var(--typora-list-step);
-    --list-indent: var(--typora-list-step);
-    --typora-list-marker-color: var(--text-normal);
+    --list-padding-inline-start: calc(var(--list-indent-editing, 0.75em) + 1.5em);
 }
 
-/* 列表行距 */
 body.typora-mode-active .markdown-source-view.mod-cm6
 .HyperMD-list-line.cm-line {
     padding-top: 0.2em;
     padding-bottom: 0.2em;
     line-height: var(--typora-line-height, 1.6);
-    /*
-     * Obsidian 默认给列表行设置负 text-indent，用于把源码标记挂到左侧。
-     * 标记现已由插件自行绘制，必须清零，否则会抵消下面的层级 padding，
-     * 表现为圆点出现了，但列表正文仍和普通段落同列。
-     */
-    text-indent: 0 !important;
-}
-
-/*
- * 缩进只走按层级 padding；源码缩进槽宽度清零，避免叠加重算。
- */
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line .cm-hmd-list-indent [class*="cm-hmd-list-indent-"] {
-    display: inline-block !important;
-    width: 0 !important;
-    min-width: 0 !important;
-    max-width: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: hidden !important;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-1:has(.cm-formatting-list-ul) {
-    padding-inline-start: var(--typora-ul-pad) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-2:has(.cm-formatting-list-ul) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step)) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-3:has(.cm-formatting-list-ul) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 2) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-4:has(.cm-formatting-list-ul) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 3) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-5:has(.cm-formatting-list-ul) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 4) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-6:has(.cm-formatting-list-ul) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 5) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-7:has(.cm-formatting-list-ul) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 6) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-8:has(.cm-formatting-list-ul) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 7) !important;
-}
-
-/*
- * 所有列表行（包括光标行）：把源码「- 」原位替换成圆点。
- * 不能将 font-size 设为 0，否则以 em 定义的伪元素也会缩成 0。
- */
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line .cm-formatting-list-ul {
-    display: inline-block !important;
-    position: relative !important;
-    width: var(--typora-ul-marker) !important;
-    min-width: var(--typora-ul-marker) !important;
-    max-width: var(--typora-ul-marker) !important;
-    height: 1em !important;
-    margin-inline-start: calc(-1 * (var(--typora-ul-marker) + var(--typora-ul-gap))) !important;
-    margin-inline-end: var(--typora-ul-gap) !important;
-    padding: 0 !important;
-    overflow: hidden !important;
-    color: transparent !important;
-    font-size: inherit !important;
-    line-height: 1 !important;
-    text-indent: -9999px !important;
-    vertical-align: middle !important;
-    letter-spacing: 0 !important;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line .cm-formatting-list-ul::before {
-    content: "" !important;
-    display: block !important;
-    position: absolute !important;
-    top: 50% !important;
-    left: 50% !important;
-    transform: translate(-50%, -50%) !important;
-    width: 5.5px !important;
-    height: 5.5px !important;
-    border-radius: 50% !important;
-    background-color: var(--typora-list-marker-color) !important;
-    border: none !important;
-}
-
-/* Typora / 截图层级：一级实心圆、二级空心圆、三级实心方块 */
-body.typora-mode-active .markdown-source-view.mod-cm6
-:is(.HyperMD-list-line-2, .HyperMD-list-line-6) .cm-formatting-list-ul::before {
-    width: 5px !important;
-    height: 5px !important;
-    background-color: transparent !important;
-    border: 1.25px solid var(--typora-list-marker-color) !important;
-    border-radius: 50% !important;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6
-:is(.HyperMD-list-line-3, .HyperMD-list-line-7) .cm-formatting-list-ul::before {
-    width: 5px !important;
-    height: 5px !important;
-    border-radius: 0 !important;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6
-:is(.HyperMD-list-line-4, .HyperMD-list-line-8) .cm-formatting-list-ul::before {
-    width: 4.5px !important;
-    height: 4.5px !important;
-    background-color: transparent !important;
-    border: 1.25px solid var(--typora-list-marker-color) !important;
-    border-radius: 0 !important;
-}
-
-/* 避免 Obsidian 自带 list-bullet 与上面圆点叠两个 */
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line:has(.cm-formatting-list-ul) .list-bullet,
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line:has(.cm-formatting-list-ul) .list-bullet:after {
-    display: none !important;
-    content: none !important;
-    width: 0 !important;
-    min-width: 0 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-/* 有序列表：强制显示源码数字 1. 2. */
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-list-ol,
-body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
-.cm-line:not(.cm-active) .cm-formatting-list-ol,
-body.typora-mode-active.typora-hide-syntax .markdown-source-view.mod-cm6
-.cm-line.cm-active .cm-formatting-list-ol {
-    display: inline !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    width: auto !important;
-    height: auto !important;
-    overflow: visible !important;
-    color: var(--text-normal) !important;
-    font-size: inherit !important;
-    font-weight: 400 !important;
-    margin-inline-end: 0.4em !important;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line:has(.cm-formatting-list-ol) .list-bullet,
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line:has(.cm-formatting-list-ol) .list-bullet:after {
-    display: none !important;
-    content: none !important;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-1:has(.cm-formatting-list-ol) {
-    padding-inline-start: var(--typora-ul-pad) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-2:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step)) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-3:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 2) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-4:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 3) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-5:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 4) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-6:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 5) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-7:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 6) !important;
-}
-body.typora-mode-active .markdown-source-view.mod-cm6
-.HyperMD-list-line-8:has(.cm-formatting-list-ol) {
-    padding-inline-start: calc(var(--typora-ul-pad) + var(--typora-list-step) * 7) !important;
 }
 
 body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line {
     tab-size: 4;
-}
-
-/*
- * 括号编号列表 (1) / （1）：课本常用写法，按有序列表同样做层级显示
- * - 条目行：与 1. 类似
- * - 条目下方正文：再缩进约 1 tab
- */
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.typora-paren-list-item {
-    padding-inline-start: 0.25em !important;
-    padding-top: 0.2rem;
-    padding-bottom: 0.2rem;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6 .typora-paren-list-marker {
-    color: var(--typora-list-marker-color, var(--text-muted));
-    font-weight: 500;
-    margin-inline-end: 0.35em;
-}
-
-body.typora-mode-active .markdown-source-view.mod-cm6 .cm-line.typora-paren-list-body {
-    padding-inline-start: var(--typora-list-indent, 2.5em) !important;
-    padding-top: 0.15em;
-    padding-bottom: 0.15em;
 }
 
 /* =====================================================
@@ -1466,26 +1243,30 @@ body.typora-mode-active .markdown-source-view.mod-cm6 .cm-formatting-footref {
     background-color: var(--background-primary-alt);
 }
 
-.format-hotkeys-order-controls {
-    display: flex;
-    gap: 4px;
+.format-hotkeys-order-row.is-draggable {
+    cursor: grab;
+    user-select: none;
 }
 
-.format-hotkeys-order-btn {
-    border: none;
-    border-radius: var(--radius-s);
-    padding: 2px 8px;
-    background-color: var(--background-primary-alt);
-    color: var(--text-normal);
-    cursor: default;
+.format-hotkeys-order-row.is-dragging {
+    opacity: 0.5;
 }
 
-.format-hotkeys-order-btn:hover:not(:disabled) {
-    background-color: var(--background-modifier-hover);
+.format-hotkeys-order-row.drop-before {
+    box-shadow: inset 0 2px 0 var(--interactive-accent);
 }
 
-.format-hotkeys-order-btn:disabled {
-    opacity: 0.35;
+.format-hotkeys-order-row.drop-after {
+    box-shadow: inset 0 -2px 0 var(--interactive-accent);
+}
+
+.format-hotkeys-order-grip {
+    flex: 0 0 auto;
+    color: var(--text-faint);
+    cursor: grab;
+    line-height: 1;
+    letter-spacing: -1px;
+    user-select: none;
 }
 
 .format-hotkeys-lang-input {
@@ -1725,47 +1506,35 @@ body.typora-mode-active .markdown-source-view.mod-cm6
     max-width: 100%;
 }
 
-/* 高亮批注：源码里藏起标签，正文留高亮；悬停弹出解释 */
-.markdown-source-view .fh-anno,
-.markdown-preview-view .fh-anno,
-.markdown-rendered .fh-anno {
+/* 高亮批注：源码里藏起标签，正文只留底色。有解释时悬停弹出，不加下方点线 */
+:is(.markdown-source-view, .markdown-preview-view, .markdown-rendered) .fh-anno {
     background-color: var(--fh-anno-yellow);
     color: inherit;
     border-radius: 2px;
     padding: 0 1px;
+    text-decoration: none;
+    border-bottom: none;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
 }
 
-.markdown-source-view .fh-anno[data-color="green"],
-.markdown-preview-view .fh-anno[data-color="green"],
-.markdown-rendered .fh-anno[data-color="green"] {
+:is(.markdown-source-view, .markdown-preview-view, .markdown-rendered) .fh-anno[data-color="green"] {
     background-color: var(--fh-anno-green);
 }
 
-.markdown-source-view .fh-anno[data-color="blue"],
-.markdown-preview-view .fh-anno[data-color="blue"],
-.markdown-rendered .fh-anno[data-color="blue"] {
+:is(.markdown-source-view, .markdown-preview-view, .markdown-rendered) .fh-anno[data-color="blue"] {
     background-color: var(--fh-anno-blue);
 }
 
-.markdown-source-view .fh-anno[data-color="pink"],
-.markdown-preview-view .fh-anno[data-color="pink"],
-.markdown-rendered .fh-anno[data-color="pink"] {
+:is(.markdown-source-view, .markdown-preview-view, .markdown-rendered) .fh-anno[data-color="pink"] {
     background-color: var(--fh-anno-pink);
 }
 
-.markdown-source-view .fh-anno[data-color="orange"],
-.markdown-preview-view .fh-anno[data-color="orange"],
-.markdown-rendered .fh-anno[data-color="orange"] {
+:is(.markdown-source-view, .markdown-preview-view, .markdown-rendered) .fh-anno[data-color="orange"] {
     background-color: var(--fh-anno-orange);
 }
 
-.markdown-source-view .fh-anno[data-comment],
-.markdown-preview-view .fh-anno[data-comment],
-.markdown-rendered .fh-anno[data-comment] {
-    text-decoration: underline dotted rgba(176, 122, 0, 0.95);
-    text-underline-offset: 2px;
+:is(.markdown-source-view, .markdown-preview-view, .markdown-rendered) .fh-anno[data-comment] {
     cursor: help;
 }
 

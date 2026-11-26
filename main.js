@@ -1180,6 +1180,7 @@ const TYPORA_STYLE_KEYS = [
     "--typora-link-color",
     "--typora-inline-code-color",
     "--typora-list-marker-color",
+    "--list-marker-color",
     "--typora-bold-color",
     "--typora-active-line-bg",
 ];
@@ -1219,6 +1220,7 @@ function headingColorValue(level, color) {
     return `var(--h${level}-color)`;
 }
 function writeTyporaVars(el, style) {
+    var _a;
     el.style.setProperty("--typora-content-width", `${style.contentWidth}px`);
     el.style.setProperty("--typora-line-height", String(style.lineHeight));
     el.style.setProperty("--typora-line-padding", `${style.linePadding}em`);
@@ -1231,7 +1233,17 @@ function writeTyporaVars(el, style) {
     el.style.setProperty("--typora-quote-color", style.quoteColor || "var(--text-muted)");
     el.style.setProperty("--typora-link-color", style.linkColor || "var(--link-color)");
     el.style.setProperty("--typora-inline-code-color", style.inlineCodeColor || "var(--code-normal, var(--text-normal))");
-    el.style.setProperty("--typora-list-marker-color", style.listMarkerColor || "var(--text-normal)");
+    const markerColor = (_a = style.listMarkerColor) === null || _a === void 0 ? void 0 : _a.trim();
+    el.style.setProperty("--typora-list-marker-color", markerColor || "var(--list-marker-color, var(--text-muted))");
+    // 自定义时覆盖 Obsidian 原生的 --list-marker-color；未填写则跟随主题圆点色。
+    if (markerColor) {
+        el.style.setProperty("--list-marker-color", markerColor);
+        document.documentElement.style.setProperty("--list-marker-color", markerColor);
+    }
+    else {
+        el.style.removeProperty("--list-marker-color");
+        document.documentElement.style.removeProperty("--list-marker-color");
+    }
     el.style.setProperty("--typora-bold-color", style.boldColor || "var(--bold-color, var(--text-normal))");
     el.style.setProperty("--typora-active-line-bg", style.highlightActiveLine ? "rgba(135, 131, 120, 0.05)" : "transparent");
 }
@@ -1886,7 +1898,7 @@ class FormatHotkeysSettingTab extends ObsidianApi.PluginSettingTab {
  * 选区高亮 + 悬停批注。
  * 写法放在笔记正文里，阅读视图和源码模式都能看到：
  * <span class="fh-anno" data-color="yellow" data-fh-id="ab12cd" data-comment="解释">原文</span>
- * 交互参考开源 Comment / Marginalia：选中文字、写下解释、鼠标移上去显示。
+ * 有解释时只靠悬停弹出，正文不再加下方点状线。
  */
 const ANNO_COLORS = ["yellow", "green", "blue", "pink", "orange"];
 const COLOR_LABEL = {
@@ -2012,6 +2024,7 @@ function buildAnnotation(inner, color, comment, id) {
     const text = comment.trim();
     if (text) {
         const encoded = encodeAttr(text);
+        // title 留给阅读视图：有的净化规则会丢掉 data-comment，点状下划线由样式关掉
         parts.push(`data-comment="${encoded}"`, `title="${encoded}"`);
     }
     return `<span ${parts.join(" ")}>${inner}</span>`;
@@ -2146,10 +2159,21 @@ function annotationTouching(doc, from, to) {
     }
     return (_b = anns.find((ann) => start < ann.to && end > ann.from)) !== null && _b !== void 0 ? _b : null;
 }
+/** 按 id 找回批注；id 被复制成多条时改用原来的位置，避免改到另一条 */
+function resolveAnnotation(doc, ann) {
+    var _a, _b;
+    const anns = findAnnotations(doc);
+    const sameId = ann.id ? anns.filter((item) => item.id === ann.id) : [];
+    if (sameId.length === 1) {
+        return sameId[0];
+    }
+    const pool = sameId.length > 1 ? sameId : anns;
+    return ((_b = (_a = pool.find((item) => item.from === ann.from && item.to === ann.to)) !== null && _a !== void 0 ? _a : pool.find((item) => item.from === ann.from && item.inner === ann.inner)) !== null && _b !== void 0 ? _b : null);
+}
 function replaceSpan(editor, ann, next) {
+    var _a;
     const doc = editor.getValue();
-    const fresh = findAnnotations(doc).find((item) => (ann.id && item.id === ann.id) || (item.from === ann.from && item.to === ann.to));
-    const target = fresh !== null && fresh !== void 0 ? fresh : ann;
+    const target = (_a = resolveAnnotation(doc, ann)) !== null && _a !== void 0 ? _a : ann;
     if (!doc.slice(target.from, target.to).startsWith("<span")) {
         new ObsidianApi.Notice("批注位置已变化，请重试");
         return;
@@ -2157,43 +2181,44 @@ function replaceSpan(editor, ann, next) {
     editor.replaceRange(next, offsetToPos(doc, target.from), offsetToPos(doc, target.to));
 }
 function promptAnnotation(app, editor) {
-    const doc = editor.getValue();
-    const rawFrom = posToOffset(doc, editor.getCursor("from"));
-    const rawTo = posToOffset(doc, editor.getCursor("to"));
-    const from = Math.min(rawFrom, rawTo);
-    const to = Math.max(rawFrom, rawTo);
-    const hit = annotationTouching(doc, from, to);
-    if (from === to) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const doc = editor.getValue();
+        const rawFrom = posToOffset(doc, editor.getCursor("from"));
+        const rawTo = posToOffset(doc, editor.getCursor("to"));
+        const from = Math.min(rawFrom, rawTo);
+        const to = Math.max(rawFrom, rawTo);
+        const hit = annotationTouching(doc, from, to);
+        if (from === to) {
+            if (hit) {
+                yield editAnnotation(app, editor, hit);
+                return;
+            }
+            new ObsidianApi.Notice("请先选中要高亮的文字");
+            return;
+        }
         if (hit) {
-            void editAnnotation(app, editor, hit);
+            const inside = from >= hit.innerFrom && to <= hit.innerTo;
+            if (inside) {
+                yield editAnnotation(app, editor, hit);
+                return;
+            }
+            new ObsidianApi.Notice("选区与已有批注重叠");
             return;
         }
-        new ObsidianApi.Notice("请先选中要高亮的文字");
-        return;
-    }
-    if (hit) {
-        const inside = from >= hit.innerFrom && to <= hit.innerTo;
-        if (inside) {
-            void editAnnotation(app, editor, hit);
+        if (fenceRanges$1(doc).some(([a, b]) => from < b && to > a)) {
+            new ObsidianApi.Notice("代码块里不能添加批注");
             return;
         }
-        new ObsidianApi.Notice("选区与已有批注重叠");
-        return;
-    }
-    if (fenceRanges$1(doc).some(([a, b]) => from < b && to > a)) {
-        new ObsidianApi.Notice("代码块里不能添加批注");
-        return;
-    }
-    const selected = editor.getSelection();
-    if (!selected.trim()) {
-        new ObsidianApi.Notice("请先选中要高亮的文字");
-        return;
-    }
-    if (/<\/?span\b/i.test(selected)) {
-        new ObsidianApi.Notice("选区里已有 span 标签，请换一段文字");
-        return;
-    }
-    void askAnnotation(app, { comment: "", color: "yellow" }, "高亮并批注", false).then((result) => {
+        const selected = editor.getSelection();
+        if (!selected.trim()) {
+            new ObsidianApi.Notice("请先选中要高亮的文字");
+            return;
+        }
+        if (/<\/?span\b/i.test(selected)) {
+            new ObsidianApi.Notice("选区里已有 span 标签，请换一段文字");
+            return;
+        }
+        const result = yield askAnnotation(app, { comment: "", color: "yellow" }, "高亮并批注", false);
         if (!result || result.action !== "save") {
             return;
         }
@@ -2213,7 +2238,7 @@ function editAnnotation(app, editor, ann) {
             return;
         }
         const docNow = editor.getValue();
-        const freshNow = (_a = findAnnotations(docNow).find((item) => (ann.id && item.id === ann.id) || (item.from === ann.from && item.to === ann.to))) !== null && _a !== void 0 ? _a : ann;
+        const freshNow = (_a = resolveAnnotation(docNow, ann)) !== null && _a !== void 0 ? _a : ann;
         if (result.action === "remove") {
             replaceSpan(editor, freshNow, freshNow.inner);
             return;
@@ -2384,33 +2409,33 @@ function cmOf(editor) {
     return cm !== null && cm !== void 0 ? cm : null;
 }
 function locate(data, view, host) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     const anns = findAnnotations(data);
     const id = (_a = host.getAttribute("data-fh-id")) !== null && _a !== void 0 ? _a : "";
-    if (id) {
-        const byId = anns.find((ann) => ann.id === id);
-        if (byId) {
-            return byId;
-        }
+    const sameId = id ? anns.filter((ann) => ann.id === id) : [];
+    // 复制粘贴会带出相同 id，只有唯一一条时才按 id 命中
+    if (sameId.length === 1) {
+        return sameId[0];
     }
+    const narrowed = sameId.length > 1 ? sameId : anns;
     if (view.getMode() === "source") {
         const cm = cmOf(view.editor);
         if (cm) {
             try {
                 const pos = cm.posAtDOM(host, 0);
-                const byPos = anns.find((ann) => pos >= ann.innerFrom && pos <= ann.innerTo);
+                const byPos = narrowed.find((ann) => pos >= ann.innerFrom && pos <= ann.innerTo);
                 if (byPos) {
                     return byPos;
                 }
             }
-            catch (_f) {
+            catch (_g) {
                 // 节点已经不在编辑器里
             }
         }
     }
-    const comment = (_b = host.getAttribute("data-comment")) !== null && _b !== void 0 ? _b : "";
-    const inner = (_c = host.textContent) !== null && _c !== void 0 ? _c : "";
-    return (_d = anns.find((ann) => ann.comment === comment && ann.inner === inner)) !== null && _d !== void 0 ? _d : (inner ? (_e = anns.find((ann) => ann.inner === inner)) !== null && _e !== void 0 ? _e : null : null);
+    const comment = (_c = (_b = host.getAttribute("data-comment")) !== null && _b !== void 0 ? _b : host.getAttribute("title")) !== null && _c !== void 0 ? _c : "";
+    const inner = (_d = host.textContent) !== null && _d !== void 0 ? _d : "";
+    return ((_e = narrowed.find((ann) => ann.comment === comment && ann.inner === inner)) !== null && _e !== void 0 ? _e : (inner ? (_f = narrowed.find((ann) => ann.inner === inner)) !== null && _f !== void 0 ? _f : null : null));
 }
 function readNote(view) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -2435,10 +2460,7 @@ function readNote(view) {
 }
 function applyHoverEdit(view, ann, build) {
     return __awaiter(this, void 0, void 0, function* () {
-        const resolve = (data) => {
-            var _a;
-            return (_a = findAnnotations(data).find((item) => (ann.id && item.id === ann.id) || (item.from === ann.from && item.inner === ann.inner))) !== null && _a !== void 0 ? _a : null;
-        };
+        const resolve = (data) => resolveAnnotation(data, ann);
         if (view.getMode() === "source") {
             const fresh = resolve(view.editor.getValue());
             if (!fresh) {
@@ -2484,6 +2506,43 @@ function placeTooltip(tip, anchor) {
     tip.style.top = `${top}px`;
     tip.style.visibility = "visible";
 }
+function runTooltipAction(app, host, action) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const view = viewContaining(app, host);
+        hideTooltip();
+        if (!view) {
+            new ObsidianApi.Notice("找不到所在笔记");
+            return;
+        }
+        const data = yield readNote(view);
+        if (data === null) {
+            new ObsidianApi.Notice("读不到笔记内容");
+            return;
+        }
+        const ann = locate(data, view, host);
+        if (!ann) {
+            new ObsidianApi.Notice("找不到这条批注");
+            return;
+        }
+        if (action === "remove") {
+            yield applyHoverEdit(view, ann, (fresh) => fresh.inner);
+            return;
+        }
+        if (view.getMode() === "source") {
+            yield editAnnotation(app, view.editor, ann);
+            return;
+        }
+        const result = yield askAnnotation(app, { comment: ann.comment, color: ann.color }, "编辑批注", true);
+        if (!result) {
+            return;
+        }
+        if (result.action === "remove") {
+            yield applyHoverEdit(view, ann, (fresh) => fresh.inner);
+            return;
+        }
+        yield applyHoverEdit(view, ann, (fresh) => buildAnnotation(fresh.inner, result.color, result.comment, fresh.id || createId(data)));
+    });
+}
 function showTooltip(app, host, comment) {
     if (!tooltipEl) {
         tooltipEl = document.body.createDiv({ cls: "fh-anno-tip" });
@@ -2496,47 +2555,10 @@ function showTooltip(app, host, comment) {
     const actions = tooltipEl.createDiv({ cls: "fh-anno-tip-actions" });
     const editBtn = actions.createEl("button", { text: "编辑", cls: "fh-anno-tip-btn", attr: { type: "button" } });
     const removeBtn = actions.createEl("button", { text: "移除", cls: "fh-anno-tip-btn", attr: { type: "button" } });
-    const run = (action) => {
-        const view = viewContaining(app, host);
-        hideTooltip();
-        if (!view) {
-            new ObsidianApi.Notice("找不到所在笔记");
-            return;
-        }
-        void (() => __awaiter(this, void 0, void 0, function* () {
-            const data = yield readNote(view);
-            if (data === null) {
-                new ObsidianApi.Notice("读不到笔记内容");
-                return;
-            }
-            const ann = locate(data, view, host);
-            if (!ann) {
-                new ObsidianApi.Notice("找不到这条批注");
-                return;
-            }
-            if (action === "remove") {
-                yield applyHoverEdit(view, ann, (fresh) => fresh.inner);
-                return;
-            }
-            if (view.getMode() !== "source") {
-                const result = yield askAnnotation(app, { comment: ann.comment, color: ann.color }, "编辑批注", true);
-                if (!result) {
-                    return;
-                }
-                if (result.action === "remove") {
-                    yield applyHoverEdit(view, ann, (fresh) => fresh.inner);
-                    return;
-                }
-                yield applyHoverEdit(view, ann, (fresh) => buildAnnotation(fresh.inner, result.color, result.comment, fresh.id || createId(data)));
-                return;
-            }
-            yield editAnnotation(app, view.editor, ann);
-        }))();
-    };
     editBtn.addEventListener("mousedown", (ev) => ev.preventDefault());
     removeBtn.addEventListener("mousedown", (ev) => ev.preventDefault());
-    editBtn.addEventListener("click", () => run("edit"));
-    removeBtn.addEventListener("click", () => run("remove"));
+    editBtn.addEventListener("click", () => void runTooltipAction(app, host, "edit"));
+    removeBtn.addEventListener("click", () => void runTooltipAction(app, host, "remove"));
     placeTooltip(tooltipEl, host);
 }
 function commentFromHost(host) {
@@ -2590,8 +2612,15 @@ function installAnnotationHover(plugin) {
         }
         scheduleHideTooltip();
     });
-    window.addEventListener("scroll", hideTooltip, true);
-    plugin.register(() => window.removeEventListener("scroll", hideTooltip, true));
+    const onScroll = (ev) => {
+        const target = ev.target;
+        if (target instanceof Node && (tooltipEl === null || tooltipEl === void 0 ? void 0 : tooltipEl.contains(target))) {
+            return;
+        }
+        hideTooltip();
+    };
+    window.addEventListener("scroll", onScroll, true);
+    plugin.register(() => window.removeEventListener("scroll", onScroll, true));
 }
 
 class LanguageInputModal extends ObsidianApi.Modal {
@@ -2652,13 +2681,15 @@ class ToolbarOrderModal extends ObsidianApi.Modal {
     constructor(app, plugin) {
         super(app);
         this.plugin = plugin;
+        /** 正在拖拽的行对应的 visible 下标 */
+        this.dragIndex = null;
         this.visible = [...plugin.settings.toolbarButtonOrder];
     }
     onOpen() {
         const { contentEl, titleEl } = this;
         titleEl.setText("整理工具栏");
         contentEl.createEl("p", {
-            text: "勾选显示在工具栏上的按钮，可用 ↑↓ 调整顺序；未勾选的会出现在「更多」菜单里。顿号「、」已改用 Alt+`，不再占用按钮。",
+            text: "勾选显示在工具栏上的按钮，按住行拖拽可调整顺序；未勾选的会出现在「更多」菜单里。顿号「、」已改用 Alt+`，不再占用按钮。",
             cls: "format-hotkeys-order-desc",
         });
         const listEl = contentEl.createDiv({ cls: "format-hotkeys-order-list" });
@@ -2704,29 +2735,60 @@ class ToolbarOrderModal extends ObsidianApi.Modal {
                 return;
             }
             const visibleIndex = this.visible.indexOf(row.id);
-            const controls = el.createDiv({ cls: "format-hotkeys-order-controls" });
-            const upBtn = controls.createEl("button", { text: "↑", cls: "format-hotkeys-order-btn" });
-            upBtn.disabled = visibleIndex <= 0;
-            upBtn.addEventListener("click", () => {
-                if (visibleIndex <= 0)
+            // 拖拽把手：整行都可拖，把手只是视觉提示
+            const grip = el.createSpan({ text: "≡", cls: "format-hotkeys-order-grip" });
+            grip.setAttr("aria-hidden", "true");
+            grip.setAttr("title", "拖拽调整顺序");
+            el.addClass("is-draggable");
+            el.draggable = true;
+            el.addEventListener("dragstart", (evt) => {
+                this.dragIndex = visibleIndex;
+                el.addClass("is-dragging");
+                if (evt.dataTransfer) {
+                    evt.dataTransfer.effectAllowed = "move";
+                    // 某些平台必须写点数据才会触发 drop
+                    evt.dataTransfer.setData("text/plain", row.id);
+                }
+            });
+            el.addEventListener("dragend", () => {
+                this.dragIndex = null;
+                el.removeClass("is-dragging");
+                this.clearDropMarks(container);
+            });
+            el.addEventListener("dragover", (evt) => {
+                if (this.dragIndex === null || this.dragIndex === visibleIndex)
                     return;
-                [this.visible[visibleIndex - 1], this.visible[visibleIndex]] = [
-                    this.visible[visibleIndex],
-                    this.visible[visibleIndex - 1],
-                ];
+                evt.preventDefault();
+                if (evt.dataTransfer)
+                    evt.dataTransfer.dropEffect = "move";
+                const rect = el.getBoundingClientRect();
+                const after = evt.clientY > rect.top + rect.height / 2;
+                this.clearDropMarks(container);
+                el.addClass(after ? "drop-after" : "drop-before");
+            });
+            el.addEventListener("drop", (evt) => {
+                evt.preventDefault();
+                const from = this.dragIndex;
+                const rect = el.getBoundingClientRect();
+                const after = evt.clientY > rect.top + rect.height / 2;
+                this.clearDropMarks(container);
+                this.dragIndex = null;
+                if (from === null || from === visibleIndex)
+                    return;
+                // 先把“插入到目标行前/后”的位置换算成移除源行之后的下标
+                let insertAt = visibleIndex + (after ? 1 : 0);
+                if (from < insertAt)
+                    insertAt -= 1;
+                const moved = this.visible.splice(from, 1)[0];
+                this.visible.splice(insertAt, 0, moved);
                 this.renderList(container);
             });
-            const downBtn = controls.createEl("button", { text: "↓", cls: "format-hotkeys-order-btn" });
-            downBtn.disabled = visibleIndex >= this.visible.length - 1;
-            downBtn.addEventListener("click", () => {
-                if (visibleIndex >= this.visible.length - 1)
-                    return;
-                [this.visible[visibleIndex], this.visible[visibleIndex + 1]] = [
-                    this.visible[visibleIndex + 1],
-                    this.visible[visibleIndex],
-                ];
-                this.renderList(container);
-            });
+        });
+    }
+    clearDropMarks(container) {
+        container.querySelectorAll(".drop-before, .drop-after").forEach((el) => {
+            el.removeClass("drop-before");
+            el.removeClass("drop-after");
         });
     }
     onClose() {
@@ -3063,18 +3125,41 @@ function readViewState(view) {
     }
     return state;
 }
-/** 恢复视图状态：选区/光标 + 滚动 + 将光标行滚入视野 */
+/** 把保存的光标位置钳制到当前文档实际范围内（文件被改短或套用到别的视图时不至于抛 RangeError） */
+function clampPos(editor, pos) {
+    var _a;
+    const lineCount = editor.lineCount();
+    if (lineCount <= 0)
+        return { line: 0, ch: 0 };
+    const line = Math.max(0, Math.min(pos.line, lineCount - 1));
+    const length = ((_a = editor.getLine(line)) !== null && _a !== void 0 ? _a : "").length;
+    const ch = Math.max(0, Math.min(pos.ch, length));
+    return { line, ch };
+}
+/** 恢复视图状态：选区/光标 + 滚动 */
 function applyViewState(view, state) {
     const editor = view.editor;
-    if (state.cursor && editor) {
-        editor.setSelection(state.cursor.from, state.cursor.to);
+    try {
+        if (state.scroll !== undefined) {
+            // 用 Obsidian 官方的 ephemeral state 机制设置滚动，比 editor.setScroll 可靠
+            view.setEphemeralState({ scroll: state.scroll });
+            if (state.cursor && editor) {
+                // 有明确滚动位置时只恢复光标，不主动滚动：保存时光标本就在该视野内，
+                // 再调用 scrollIntoView 会把（位于顶部的）光标重新拉回视野，覆盖刚恢复的滚动
+                editor.setSelection(clampPos(editor, state.cursor.from), clampPos(editor, state.cursor.to));
+            }
+            return;
+        }
+        if (state.cursor && editor) {
+            const from = clampPos(editor, state.cursor.from);
+            const to = clampPos(editor, state.cursor.to);
+            editor.setSelection(from, to);
+            // 没有保存滚动时才兜底：center=false 仅在光标不在视野内时最小滚动
+            editor.scrollIntoView({ from, to }, false);
+        }
     }
-    if (state.scroll !== undefined) {
-        // 用 Obsidian 官方的 ephemeral state 机制设置滚动，比 editor.setScroll 可靠
-        view.setEphemeralState({ scroll: state.scroll });
-    }
-    if (state.cursor && editor) {
-        editor.scrollIntoView({ from: state.cursor.from, to: state.cursor.to }, true);
+    catch (e) {
+        console.warn("Format Hotkeys: 恢复编辑位置失败", e);
     }
 }
 /** 两个状态是否相同（用于轮询判断是否需要更新） */
@@ -3089,9 +3174,7 @@ function statesEqual(a, b) {
         if (ca.to.line !== cb.to.line || ca.to.ch !== cb.to.ch)
             return false;
     }
-    if (Boolean(a.scroll) !== Boolean(b.scroll))
-        return false;
-    if (a.scroll !== undefined && a.scroll !== b.scroll)
+    if (a.scroll !== b.scroll)
         return false;
     return true;
 }
@@ -3160,91 +3243,6 @@ function applyTableStableStyle(enabled) {
         document.head.appendChild(tag);
     }
     tag.textContent = TABLE_STABLE_CSS;
-}
-
-/** 行首 `(1)` / `（1）` 括号编号，课本常用写法 */
-const PAREN_ITEM_RE = /^(\s*)(?:\((\d+)\)|（(\d+)）)/;
-const HEADING_RE$1 = /^#{1,6}\s/;
-const FENCE_RE$1 = /^(\s*)```/;
-const HR_RE$1 = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
-const refreshParenListEffect = state.StateEffect.define();
-const itemLineDeco = view.Decoration.line({ class: "typora-paren-list-item" });
-const bodyLineDeco = view.Decoration.line({ class: "typora-paren-list-body" });
-const markerDeco = view.Decoration.mark({ class: "typora-paren-list-marker" });
-function isTyporaModeOn$2() {
-    return document.body.classList.contains("typora-mode-active");
-}
-function buildDecorations$5(view$1) {
-    const builder = new state.RangeSetBuilder();
-    if (!isTyporaModeOn$2()) {
-        return view.Decoration.none;
-    }
-    const doc = view$1.state.doc;
-    let inParenBlock = false;
-    let blankRun = 0;
-    /** 连续空行达到该数量则认为括号列表已结束，后面按正文 */
-    const BLANK_BREAK = 3;
-    for (let lineNo = 1; lineNo <= doc.lines; lineNo++) {
-        const line = doc.line(lineNo);
-        const text = line.text;
-        if (/^\s*$/.test(text)) {
-            blankRun++;
-            if (inParenBlock && blankRun >= BLANK_BREAK) {
-                inParenBlock = false;
-            }
-            continue;
-        }
-        blankRun = 0;
-        if (FENCE_RE$1.test(text)) {
-            inParenBlock = false;
-            continue;
-        }
-        if (HEADING_RE$1.test(text) || HR_RE$1.test(text)) {
-            inParenBlock = false;
-            continue;
-        }
-        const match = text.match(PAREN_ITEM_RE);
-        if (match) {
-            inParenBlock = true;
-            builder.add(line.from, line.from, itemLineDeco);
-            const markerLen = match[0].length;
-            builder.add(line.from, line.from + markerLen, markerDeco);
-            continue;
-        }
-        if (inParenBlock) {
-            builder.add(line.from, line.from, bodyLineDeco);
-        }
-    }
-    return builder.finish();
-}
-const parenListPlugin = view.ViewPlugin.fromClass(class {
-    constructor(view) {
-        this.decorations = buildDecorations$5(view);
-    }
-    update(update) {
-        const forced = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshParenListEffect)));
-        if (update.docChanged || update.viewportChanged || forced) {
-            this.decorations = buildDecorations$5(update.view);
-        }
-    }
-}, {
-    decorations: (v) => v.decorations,
-});
-function createParenListExtension() {
-    return parenListPlugin;
-}
-/** Typora 开关后刷新所有源码编辑器中的括号列表装饰 */
-function refreshParenListDecorations(app) {
-    app.workspace.iterateAllLeaves((leaf) => {
-        const view = leaf.view;
-        if (!(view instanceof ObsidianApi.MarkdownView) || view.getMode() !== "source") {
-            return;
-        }
-        const cm = view.editor.cm;
-        if (cm) {
-            cm.dispatch({ effects: refreshParenListEffect.of(null) });
-        }
-    });
 }
 
 const ASM_LANGS = new Set(["arm", "armasm", "asm", "gas", "nasm", "objdump", "x86asm"]);
@@ -5869,13 +5867,15 @@ const RED_CLOSE = "</font>";
  * 编辑进度保存/恢复（参考 MIT 协议插件 dy-sh/obsidian-remember-cursor-position 的成熟实现）：
  * - 保存：每 100ms 轮询当前文件的光标/滚动，变化即写入内存 db（任何时刻都最新）；
  * - 落盘：每 5s 周期写独立 json 文件，Obsidian 退出（quit 事件）与插件卸载时再强制写一次；
- * - 恢复：监听 file-open 事件，延迟等编辑器就绪后套用状态；1.5s 防重 guard 避免反复跳转；
- * - 从链接跳转（存在 .is-flashing 元素）时不覆盖目标位置。
+ * - 恢复：监听 file-open 事件，延迟等编辑器就绪后套用状态；
+ * - 会话内再按“窗格(leaf)”记一层，双栏打开同一/不同文件时互不覆盖；
+ * - 恢复是异步的：用 token + 视图校验，快速连开多个 md 或先开脑图再开 md 时，
+ *   过期的那次恢复会被丢弃，绝不会把 A 文件的位置套到 B 文件的视图上；
+ * - 从链接跳转（存在 .is-flashing 元素）时不覆盖目标位置；悬停预览不记录也不恢复。
  */
 const CHECK_INTERVAL_MS = 100;
 const DB_FLUSH_INTERVAL_MS = 5000;
 const RESTORE_DELAY_MS = 100;
-const RESTORE_GUARD_WINDOW_MS = 1500;
 const LAYOUT_READY_RESTORE_DELAY = 600;
 class FormatHotkeysPlugin extends ObsidianApi.Plugin {
     constructor() {
@@ -5884,11 +5884,14 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
         this.db = {};
         this.lastSavedDbJson = "";
         this.dbPath = "";
-        this.lastLoadedFileName = "";
-        this.lastState = {};
-        this.lastRestoredKey = "";
-        this.lastRestoredAt = 0;
-        this.loadingFile = false;
+        /** 会话内按窗格(leaf)记忆：同一文件开在两个窗格时不互相覆盖 */
+        this.paneState = new Map();
+        /** 窗格级恢复序号：序号变了说明有更新的打开/恢复请求，旧的这次作废 */
+        this.paneRestoreToken = new Map();
+        /** 正在恢复的文件：这段时间不要把“还在顶部”的光标写回数据库 */
+        this.pendingRestorePaths = new Set();
+        this.leafIds = new WeakMap();
+        this.leafSeq = 0;
     }
     onload() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -6039,7 +6042,6 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 callback: () => new TyporaConfigModal(this.app, this).open(),
             });
             this.addSettingTab(new FormatHotkeysSettingTab(this.app, this));
-            this.registerEditorExtension(createParenListExtension());
             this.registerEditorExtension(createAsmHighlightExtension());
             this.registerEditorExtension(createCppHighlightExtension());
             this.registerEditorExtension(createSqlHighlightExtension());
@@ -6053,6 +6055,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             this.dbPath = `${this.manifest.dir}/cursor-positions.json`;
             yield this.loadDb();
             this.registerEvent(this.app.workspace.on("file-open", (file) => this.restoreState(file)));
+            this.registerEvent(this.app.workspace.on("layout-change", () => this.prunePaneState()));
             this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
                 addAnnotationMenuItems(menu, this.app, editor);
                 if (!view.file)
@@ -6063,9 +6066,15 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             this.registerEvent(this.app.workspace.on("quit", () => this.writeDb()));
             // 文件重命名/删除时同步迁移或清理位置记录
             this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
-                if (file.path !== oldPath) {
+                if (file.path === oldPath)
+                    return;
+                if (Object.prototype.hasOwnProperty.call(this.db, oldPath)) {
                     this.db[file.path] = this.db[oldPath];
                     delete this.db[oldPath];
+                }
+                for (const entry of this.paneState.values()) {
+                    if (entry.path === oldPath)
+                        entry.path = file.path;
                 }
             }));
             this.registerEvent(this.app.vault.on("delete", (file) => {
@@ -6076,9 +6085,9 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             this.registerInterval(window.setInterval(() => this.writeDb(), DB_FLUSH_INTERVAL_MS));
             // 恢复：布局就绪后延迟强制恢复一次（覆盖 workspace 加载场景）
             this.app.workspace.onLayoutReady(() => {
-                window.setTimeout(() => this.restoreState(), LAYOUT_READY_RESTORE_DELAY);
+                window.setTimeout(() => this.restoreState(this.app.workspace.getActiveFile()), LAYOUT_READY_RESTORE_DELAY);
             });
-            this.restoreState();
+            this.restoreState(this.app.workspace.getActiveFile());
             installAnnotationHover(this);
             this.applyTyporaMode();
             this.applyTableStable();
@@ -6108,7 +6117,6 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
         applyTyporaStyleVars(bodyEl, this.settings.typora);
         bodyEl.toggleClass("typora-mode-active", this.settings.typoraMode);
         bodyEl.toggleClass("typora-hide-syntax", this.settings.typoraMode && this.settings.typora.hideSyntax);
-        refreshParenListDecorations(this.app);
         refreshAsmHighlight(this.app);
         refreshSqlHighlight(this.app);
         refreshHtmlStyleDecorations(this.app);
@@ -6118,81 +6126,172 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
     applyTableStable() {
         applyTableStableStyle(this.settings.tableWidthStable);
     }
-    /** 轮询：当前文件位置发生变化时写入内存 db */
-    checkStateChanged() {
+    /** 给 leaf 分配稳定的会话内 id（不依赖 Obsidian 内部字段） */
+    leafKey(leaf) {
+        let id = this.leafIds.get(leaf);
+        if (!id) {
+            this.leafSeq += 1;
+            id = `leaf${this.leafSeq}`;
+            this.leafIds.set(leaf, id);
+        }
+        return id;
+    }
+    leafFilePath(leaf) {
         var _a;
-        if (!this.settings.restoreEditorPosition)
-            return;
-        // 悬停预览窗口（Page preview / Hover Editor）是瞬态视图，绝不记录位置
-        if (this.isHoverPopoverActive())
-            return;
-        const fileName = (_a = this.app.workspace.getActiveFile()) === null || _a === void 0 ? void 0 : _a.path;
-        // 等待文件加载完成，且只记录当前正在浏览的文件
-        if (!fileName || !this.lastLoadedFileName || fileName !== this.lastLoadedFileName || this.loadingFile) {
-            return;
+        const view = leaf.view;
+        if (view instanceof ObsidianApi.MarkdownView && view.file)
+            return view.file.path;
+        const state = leaf.getViewState().state;
+        return (_a = state === null || state === void 0 ? void 0 : state.file) !== null && _a !== void 0 ? _a : "";
+    }
+    /**
+     * 刚打开的文件所在窗格。
+     * 活动窗格优先：同一文件开了两栏时，不能套到上一个焦点窗格上。
+     */
+    findLeafForPath(path) {
+        const active = this.app.workspace.activeLeaf;
+        if (active && this.leafFilePath(active) === path)
+            return active;
+        let fresh = null;
+        let matched = null;
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            if (this.leafFilePath(leaf) !== path)
+                return;
+            if (!matched)
+                matched = leaf;
+            const pane = this.paneState.get(this.leafKey(leaf));
+            if (!fresh && (!pane || pane.path !== path))
+                fresh = leaf;
+        });
+        return fresh !== null && fresh !== void 0 ? fresh : matched;
+    }
+    /** 某个 MarkdownView 所在的 leaf */
+    leafOfView(view) {
+        let found = null;
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            if (!found && leaf.view === view)
+                found = leaf;
+        });
+        return found;
+    }
+    /** 悬停预览（Page preview / Hover Editor）等瞬态视图：既不记录也不恢复 */
+    isTransientView(view) {
+        const container = view.containerEl;
+        return Boolean(container.closest(".hover-popover") || container.closest(".hover-editor"));
+    }
+    /** 关闭窗格后清理该窗格的会话记录，避免表无限增长 */
+    prunePaneState() {
+        const alive = new Set();
+        this.app.workspace.iterateAllLeaves((leaf) => alive.add(this.leafKey(leaf)));
+        for (const key of [...this.paneState.keys()]) {
+            if (!alive.has(key))
+                this.paneState.delete(key);
         }
-        const view = this.app.workspace.getActiveViewOfType(ObsidianApi.MarkdownView);
-        if (!view)
-            return;
-        const st = readViewState(view);
-        const hadPrior = Object.keys(this.lastState).length > 0;
-        if (!hadPrior) {
-            this.lastState = st;
-            return;
-        }
-        if (!statesEqual(st, this.lastState)) {
-            this.db[fileName] = Object.assign(Object.assign({}, st), { lastModified: Date.now() });
-            this.lastState = st;
+        for (const key of [...this.paneRestoreToken.keys()]) {
+            if (!alive.has(key))
+                this.paneRestoreToken.delete(key);
         }
     }
-    /** 文件打开/激活时恢复其保存的进度 */
+    stateForPane(key, path) {
+        var _a;
+        const pane = this.paneState.get(key);
+        if (pane && pane.path === path)
+            return pane.state;
+        return (_a = this.db[path]) !== null && _a !== void 0 ? _a : {};
+    }
+    hasRestorableState(state) {
+        return Boolean(state.cursor) || state.scroll !== undefined;
+    }
+    /** 轮询：当前文件位置发生变化时写入内存 db */
+    checkStateChanged() {
+        if (!this.settings.restoreEditorPosition)
+            return;
+        const view = this.app.workspace.getActiveViewOfType(ObsidianApi.MarkdownView);
+        if (!view || !view.file)
+            return;
+        // 悬停预览窗口（Page preview / Hover Editor）是瞬态视图，绝不记录位置
+        if (this.isTransientView(view))
+            return;
+        const leaf = this.leafOfView(view);
+        if (!leaf)
+            return;
+        const key = this.leafKey(leaf);
+        // 该窗格正在恢复位置：跳过，否则会把“恢复前的顶部位置”写回数据库
+        if (this.paneRestoreToken.has(key))
+            return;
+        const path = view.file.path;
+        if (this.pendingRestorePaths.has(path))
+            return;
+        const st = readViewState(view);
+        const prev = this.paneState.get(key);
+        this.paneState.set(key, { path, state: st });
+        // 同一窗格同一文件、位置没变 → 不需要写库
+        if (prev && prev.path === path && statesEqual(prev.state, st))
+            return;
+        this.db[path] = Object.assign(Object.assign({}, st), { lastModified: Date.now() });
+    }
+    /**
+     * 文件打开时恢复该窗格的进度。
+     * 延迟套用前会再核对窗格和文件路径。
+     * 快速连开两个 md，或先开脑图再开 md 时，过期的那次恢复会被丢掉。
+     */
     restoreState(file) {
-        var _a, _b, _c, _d, _e;
-        return __awaiter(this, void 0, void 0, function* () {
-            const fileName = (_a = this.app.workspace.getActiveFile()) === null || _a === void 0 ? void 0 : _a.path;
-            // 悬停预览窗口不恢复位置；若预览了某个文件，顺带清掉它的记录避免污染
-            if (this.isHoverPopoverActive()) {
-                if (fileName)
-                    delete this.db[fileName];
-                return;
-            }
-            if (fileName && this.loadingFile && this.lastLoadedFileName === fileName) {
-                return;
-            }
-            // 1.5s 防重 guard：同一个 leaf+file 刚恢复过就不再重复跳
-            const leaf = this.app.workspace.getMostRecentLeaf();
-            const leafId = (_b = leaf.id) !== null && _b !== void 0 ? _b : "";
-            const leafFile = (_d = (_c = leaf === null || leaf === void 0 ? void 0 : leaf.getViewState().state) === null || _c === void 0 ? void 0 : _c.file) !== null && _d !== void 0 ? _d : "";
-            const guardKey = `${leafId}:${leafFile}`;
-            if (fileName && this.lastRestoredKey === guardKey && Date.now() - this.lastRestoredAt < RESTORE_GUARD_WINDOW_MS) {
-                return;
-            }
-            this.loadingFile = true;
-            if (this.lastLoadedFileName !== fileName) {
-                this.lastState = {};
-                this.lastLoadedFileName = fileName !== null && fileName !== void 0 ? fileName : "";
-                let st = {};
-                if (fileName && this.settings.restoreEditorPosition) {
-                    st = (_e = this.db[fileName]) !== null && _e !== void 0 ? _e : {};
-                    if (Object.keys(st).length > 0) {
-                        yield this.delay(RESTORE_DELAY_MS);
-                        // 从链接/搜索跳转时 Obsidian 会高亮目标，此时不覆盖
-                        const flashing = this.app.workspace.containerEl.querySelector(".is-flashing");
-                        if (!flashing) {
-                            yield this.delay(10);
-                            const view = this.app.workspace.getActiveViewOfType(ObsidianApi.MarkdownView);
-                            if (view) {
-                                applyViewState(view, st);
-                            }
-                        }
-                    }
+        if (!this.settings.restoreEditorPosition)
+            return;
+        const path = file === null || file === void 0 ? void 0 : file.path;
+        if (!path)
+            return;
+        this.pendingRestorePaths.add(path);
+        const leaf = this.findLeafForPath(path);
+        if (!leaf) {
+            // 窗格状态可能还没切过来，稍后再认一次
+            window.setTimeout(() => {
+                const later = this.findLeafForPath(path);
+                if (!later || (later.view instanceof ObsidianApi.MarkdownView && this.isTransientView(later.view))) {
+                    this.pendingRestorePaths.delete(path);
+                    return;
                 }
-                this.lastRestoredKey = guardKey;
-                this.lastRestoredAt = Date.now();
-                this.lastState = st;
-            }
-            this.loadingFile = false;
-        });
+                this.scheduleRestore(later, path);
+            }, RESTORE_DELAY_MS);
+            return;
+        }
+        if (leaf.view instanceof ObsidianApi.MarkdownView && this.isTransientView(leaf.view)) {
+            this.pendingRestorePaths.delete(path);
+            return;
+        }
+        this.scheduleRestore(leaf, path);
+    }
+    scheduleRestore(leaf, path) {
+        var _a;
+        const key = this.leafKey(leaf);
+        const token = ((_a = this.paneRestoreToken.get(key)) !== null && _a !== void 0 ? _a : 0) + 1;
+        this.paneRestoreToken.set(key, token);
+        window.setTimeout(() => this.applyScheduledRestore(leaf, key, path, token), RESTORE_DELAY_MS);
+    }
+    applyScheduledRestore(leaf, key, path, token) {
+        var _a, _b;
+        if (this.paneRestoreToken.get(key) !== token)
+            return;
+        this.paneRestoreToken.delete(key);
+        this.pendingRestorePaths.delete(path);
+        const view = leaf.view;
+        // 脑图 / Canvas / PDF 等没有文本光标，清掉该窗格记录
+        if (!(view instanceof ObsidianApi.MarkdownView)) {
+            this.paneState.delete(key);
+            return;
+        }
+        if (((_b = (_a = view.file) === null || _a === void 0 ? void 0 : _a.path) !== null && _b !== void 0 ? _b : "") !== path || this.isTransientView(view))
+            return;
+        // 从链接/搜索跳转时 Obsidian 会高亮目标，此时不覆盖
+        if (view.containerEl.querySelector(".is-flashing"))
+            return;
+        const target = this.stateForPane(key, path);
+        if (!this.hasRestorableState(target)) {
+            this.paneState.set(key, { path, state: {} });
+            return;
+        }
+        applyViewState(view, target);
+        this.paneState.set(key, { path, state: target });
     }
     /** 从独立 json 文件读取历史进度 */
     loadDb() {
@@ -6217,14 +6316,6 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             this.lastSavedDbJson = JSON.stringify(this.db);
         });
     }
-    /** 当前激活视图是否为悬停预览窗口（Page preview / Hover Editor 等瞬态视图） */
-    isHoverPopoverActive() {
-        var _a;
-        const container = (_a = this.app.workspace.getActiveViewOfType(ObsidianApi.MarkdownView)) === null || _a === void 0 ? void 0 : _a.containerEl;
-        if (!container)
-            return false;
-        return container.closest(".hover-popover") !== null || container.closest(".hover-editor") !== null;
-    }
     /** 把内存 db 写入独立 json 文件（仅内容变化时写） */
     writeDb() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -6244,9 +6335,6 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
                 console.error("Format Hotkeys: 写入光标位置数据库失败", e);
             }
         });
-    }
-    delay(ms) {
-        return new Promise((resolve) => setTimeout(resolve, ms));
     }
     setupTableStripeRefresh() {
         this.registerEvent(this.app.workspace.on("layout-change", () => scheduleTableStripeRefresh(this.app)));

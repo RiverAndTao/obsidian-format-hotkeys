@@ -1,4 +1,4 @@
-import { MarkdownView } from "obsidian";
+import { Editor, MarkdownView } from "obsidian";
 
 export interface CursorPos {
     line: number;
@@ -40,21 +40,43 @@ export function readViewState(view: MarkdownView): EditorStateSnapshot {
     return state;
 }
 
-/** 恢复视图状态：选区/光标 + 滚动 + 将光标行滚入视野 */
+/** 把保存的光标位置钳制到当前文档实际范围内（文件被改短或套用到别的视图时不至于抛 RangeError） */
+function clampPos(editor: Editor, pos: CursorPos): CursorPos {
+    const lineCount = editor.lineCount();
+    if (lineCount <= 0) return { line: 0, ch: 0 };
+    const line = Math.max(0, Math.min(pos.line, lineCount - 1));
+    const length = (editor.getLine(line) ?? "").length;
+    const ch = Math.max(0, Math.min(pos.ch, length));
+    return { line, ch };
+}
+
+/** 恢复视图状态：选区/光标 + 滚动 */
 export function applyViewState(view: MarkdownView, state: EditorStateSnapshot): void {
     const editor = view.editor;
+    try {
+        if (state.scroll !== undefined) {
+            // 用 Obsidian 官方的 ephemeral state 机制设置滚动，比 editor.setScroll 可靠
+            view.setEphemeralState({ scroll: state.scroll });
+            if (state.cursor && editor) {
+                // 有明确滚动位置时只恢复光标，不主动滚动：保存时光标本就在该视野内，
+                // 再调用 scrollIntoView 会把（位于顶部的）光标重新拉回视野，覆盖刚恢复的滚动
+                editor.setSelection(
+                    clampPos(editor, state.cursor.from),
+                    clampPos(editor, state.cursor.to)
+                );
+            }
+            return;
+        }
 
-    if (state.cursor && editor) {
-        editor.setSelection(state.cursor.from, state.cursor.to);
-    }
-
-    if (state.scroll !== undefined) {
-        // 用 Obsidian 官方的 ephemeral state 机制设置滚动，比 editor.setScroll 可靠
-        view.setEphemeralState({ scroll: state.scroll });
-    }
-
-    if (state.cursor && editor) {
-        editor.scrollIntoView({ from: state.cursor.from, to: state.cursor.to }, true);
+        if (state.cursor && editor) {
+            const from = clampPos(editor, state.cursor.from);
+            const to = clampPos(editor, state.cursor.to);
+            editor.setSelection(from, to);
+            // 没有保存滚动时才兜底：center=false 仅在光标不在视野内时最小滚动
+            editor.scrollIntoView({ from, to }, false);
+        }
+    } catch (e) {
+        console.warn("Format Hotkeys: 恢复编辑位置失败", e);
     }
 }
 
@@ -67,7 +89,6 @@ export function statesEqual(a: EditorStateSnapshot, b: EditorStateSnapshot): boo
         if (ca.from.line !== cb.from.line || ca.from.ch !== cb.from.ch) return false;
         if (ca.to.line !== cb.to.line || ca.to.ch !== cb.to.ch) return false;
     }
-    if (Boolean(a.scroll) !== Boolean(b.scroll)) return false;
-    if (a.scroll !== undefined && a.scroll !== b.scroll) return false;
+    if (a.scroll !== b.scroll) return false;
     return true;
 }

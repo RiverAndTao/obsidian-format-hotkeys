@@ -6,7 +6,7 @@ import { Editor, MarkdownView, Menu, Modal, Notice, Plugin, type App } from "obs
  * 选区高亮 + 悬停批注。
  * 写法放在笔记正文里，阅读视图和源码模式都能看到：
  * <span class="fh-anno" data-color="yellow" data-fh-id="ab12cd" data-comment="解释">原文</span>
- * 交互参考开源 Comment / Marginalia：选中文字、写下解释、鼠标移上去显示。
+ * 有解释时只靠悬停弹出，正文不再加下方点状线。
  */
 
 export const ANNO_COLORS = ["yellow", "green", "blue", "pink", "orange"] as const;
@@ -159,6 +159,7 @@ export function buildAnnotation(inner: string, color: AnnoColor, comment: string
     const text = comment.trim();
     if (text) {
         const encoded = encodeAttr(text);
+        // title 留给阅读视图：有的净化规则会丢掉 data-comment，点状下划线由样式关掉
         parts.push(`data-comment="${encoded}"`, `title="${encoded}"`);
     }
     return `<span ${parts.join(" ")}>${inner}</span>`;
@@ -312,10 +313,24 @@ function annotationTouching(doc: string, from: number, to: number): AnnotationSp
     return anns.find((ann) => start < ann.to && end > ann.from) ?? null;
 }
 
+/** 按 id 找回批注；id 被复制成多条时改用原来的位置，避免改到另一条 */
+function resolveAnnotation(doc: string, ann: AnnotationSpan): AnnotationSpan | null {
+    const anns = findAnnotations(doc);
+    const sameId = ann.id ? anns.filter((item) => item.id === ann.id) : [];
+    if (sameId.length === 1) {
+        return sameId[0];
+    }
+    const pool = sameId.length > 1 ? sameId : anns;
+    return (
+        pool.find((item) => item.from === ann.from && item.to === ann.to) ??
+        pool.find((item) => item.from === ann.from && item.inner === ann.inner) ??
+        null
+    );
+}
+
 function replaceSpan(editor: Editor, ann: AnnotationSpan, next: string): void {
     const doc = editor.getValue();
-    const fresh = findAnnotations(doc).find((item) => (ann.id && item.id === ann.id) || (item.from === ann.from && item.to === ann.to));
-    const target = fresh ?? ann;
+    const target = resolveAnnotation(doc, ann) ?? ann;
     if (!doc.slice(target.from, target.to).startsWith("<span")) {
         new Notice("批注位置已变化，请重试");
         return;
@@ -323,7 +338,7 @@ function replaceSpan(editor: Editor, ann: AnnotationSpan, next: string): void {
     editor.replaceRange(next, offsetToPos(doc, target.from), offsetToPos(doc, target.to));
 }
 
-export function promptAnnotation(app: App, editor: Editor): void {
+export async function promptAnnotation(app: App, editor: Editor): Promise<void> {
     const doc = editor.getValue();
     const rawFrom = posToOffset(doc, editor.getCursor("from"));
     const rawTo = posToOffset(doc, editor.getCursor("to"));
@@ -332,7 +347,7 @@ export function promptAnnotation(app: App, editor: Editor): void {
     const hit = annotationTouching(doc, from, to);
     if (from === to) {
         if (hit) {
-            void editAnnotation(app, editor, hit);
+            await editAnnotation(app, editor, hit);
             return;
         }
         new Notice("请先选中要高亮的文字");
@@ -341,7 +356,7 @@ export function promptAnnotation(app: App, editor: Editor): void {
     if (hit) {
         const inside = from >= hit.innerFrom && to <= hit.innerTo;
         if (inside) {
-            void editAnnotation(app, editor, hit);
+            await editAnnotation(app, editor, hit);
             return;
         }
         new Notice("选区与已有批注重叠");
@@ -360,17 +375,16 @@ export function promptAnnotation(app: App, editor: Editor): void {
         new Notice("选区里已有 span 标签，请换一段文字");
         return;
     }
-    void askAnnotation(app, { comment: "", color: "yellow" }, "高亮并批注", false).then((result) => {
-        if (!result || result.action !== "save") {
-            return;
-        }
-        const current = editor.getSelection();
-        if (current !== selected) {
-            new Notice("选区已变化，请重新添加");
-            return;
-        }
-        editor.replaceSelection(buildAnnotation(current, result.color, result.comment, createId(editor.getValue())));
-    });
+    const result = await askAnnotation(app, { comment: "", color: "yellow" }, "高亮并批注", false);
+    if (!result || result.action !== "save") {
+        return;
+    }
+    const current = editor.getSelection();
+    if (current !== selected) {
+        new Notice("选区已变化，请重新添加");
+        return;
+    }
+    editor.replaceSelection(buildAnnotation(current, result.color, result.comment, createId(editor.getValue())));
 }
 
 export async function editAnnotation(app: App, editor: Editor, ann: AnnotationSpan): Promise<void> {
@@ -379,9 +393,7 @@ export async function editAnnotation(app: App, editor: Editor, ann: AnnotationSp
         return;
     }
     const docNow = editor.getValue();
-    const freshNow =
-        findAnnotations(docNow).find((item) => (ann.id && item.id === ann.id) || (item.from === ann.from && item.to === ann.to)) ??
-        ann;
+    const freshNow = resolveAnnotation(docNow, ann) ?? ann;
     if (result.action === "remove") {
         replaceSpan(editor, freshNow, freshNow.inner);
         return;
@@ -576,18 +588,18 @@ function cmOf(editor: Editor): EditorView | null {
 function locate(data: string, view: MarkdownView, host: HTMLElement): AnnotationSpan | null {
     const anns = findAnnotations(data);
     const id = host.getAttribute("data-fh-id") ?? "";
-    if (id) {
-        const byId = anns.find((ann) => ann.id === id);
-        if (byId) {
-            return byId;
-        }
+    const sameId = id ? anns.filter((ann) => ann.id === id) : [];
+    // 复制粘贴会带出相同 id，只有唯一一条时才按 id 命中
+    if (sameId.length === 1) {
+        return sameId[0];
     }
+    const narrowed = sameId.length > 1 ? sameId : anns;
     if (view.getMode() === "source") {
         const cm = cmOf(view.editor);
         if (cm) {
             try {
                 const pos = cm.posAtDOM(host, 0);
-                const byPos = anns.find((ann) => pos >= ann.innerFrom && pos <= ann.innerTo);
+                const byPos = narrowed.find((ann) => pos >= ann.innerFrom && pos <= ann.innerTo);
                 if (byPos) {
                     return byPos;
                 }
@@ -596,9 +608,12 @@ function locate(data: string, view: MarkdownView, host: HTMLElement): Annotation
             }
         }
     }
-    const comment = host.getAttribute("data-comment") ?? "";
+    const comment = host.getAttribute("data-comment") ?? host.getAttribute("title") ?? "";
     const inner = host.textContent ?? "";
-    return anns.find((ann) => ann.comment === comment && ann.inner === inner) ?? (inner ? anns.find((ann) => ann.inner === inner) ?? null : null);
+    return (
+        narrowed.find((ann) => ann.comment === comment && ann.inner === inner) ??
+        (inner ? narrowed.find((ann) => ann.inner === inner) ?? null : null)
+    );
 }
 
 async function readNote(view: MarkdownView): Promise<string | null> {
@@ -620,9 +635,7 @@ async function readNote(view: MarkdownView): Promise<string | null> {
 }
 
 async function applyHoverEdit(view: MarkdownView, ann: AnnotationSpan, build: (fresh: AnnotationSpan) => string): Promise<void> {
-    const resolve = (data: string): AnnotationSpan | null =>
-        findAnnotations(data).find((item) => (ann.id && item.id === ann.id) || (item.from === ann.from && item.inner === ann.inner)) ??
-        null;
+    const resolve = (data: string): AnnotationSpan | null => resolveAnnotation(data, ann);
     if (view.getMode() === "source") {
         const fresh = resolve(view.editor.getValue());
         if (!fresh) {
@@ -669,6 +682,44 @@ function placeTooltip(tip: HTMLElement, anchor: HTMLElement): void {
     tip.style.visibility = "visible";
 }
 
+async function runTooltipAction(app: App, host: HTMLElement, action: "edit" | "remove"): Promise<void> {
+    const view = viewContaining(app, host);
+    hideTooltip();
+    if (!view) {
+        new Notice("找不到所在笔记");
+        return;
+    }
+    const data = await readNote(view);
+    if (data === null) {
+        new Notice("读不到笔记内容");
+        return;
+    }
+    const ann = locate(data, view, host);
+    if (!ann) {
+        new Notice("找不到这条批注");
+        return;
+    }
+    if (action === "remove") {
+        await applyHoverEdit(view, ann, (fresh) => fresh.inner);
+        return;
+    }
+    if (view.getMode() === "source") {
+        await editAnnotation(app, view.editor, ann);
+        return;
+    }
+    const result = await askAnnotation(app, { comment: ann.comment, color: ann.color }, "编辑批注", true);
+    if (!result) {
+        return;
+    }
+    if (result.action === "remove") {
+        await applyHoverEdit(view, ann, (fresh) => fresh.inner);
+        return;
+    }
+    await applyHoverEdit(view, ann, (fresh) =>
+        buildAnnotation(fresh.inner, result.color, result.comment, fresh.id || createId(data))
+    );
+}
+
 function showTooltip(app: App, host: HTMLElement, comment: string): void {
     if (!tooltipEl) {
         tooltipEl = document.body.createDiv({ cls: "fh-anno-tip" });
@@ -682,50 +733,10 @@ function showTooltip(app: App, host: HTMLElement, comment: string): void {
     const editBtn = actions.createEl("button", { text: "编辑", cls: "fh-anno-tip-btn", attr: { type: "button" } });
     const removeBtn = actions.createEl("button", { text: "移除", cls: "fh-anno-tip-btn", attr: { type: "button" } });
 
-    const run = (action: "edit" | "remove"): void => {
-        const view = viewContaining(app, host);
-        hideTooltip();
-        if (!view) {
-            new Notice("找不到所在笔记");
-            return;
-        }
-        void (async () => {
-            const data = await readNote(view);
-            if (data === null) {
-                new Notice("读不到笔记内容");
-                return;
-            }
-            const ann = locate(data, view, host);
-            if (!ann) {
-                new Notice("找不到这条批注");
-                return;
-            }
-            if (action === "remove") {
-                await applyHoverEdit(view, ann, (fresh) => fresh.inner);
-                return;
-            }
-            if (view.getMode() !== "source") {
-                const result = await askAnnotation(app, { comment: ann.comment, color: ann.color }, "编辑批注", true);
-                if (!result) {
-                    return;
-                }
-                if (result.action === "remove") {
-                    await applyHoverEdit(view, ann, (fresh) => fresh.inner);
-                    return;
-                }
-                await applyHoverEdit(view, ann, (fresh) =>
-                    buildAnnotation(fresh.inner, result.color, result.comment, fresh.id || createId(data))
-                );
-                return;
-            }
-            await editAnnotation(app, view.editor, ann);
-        })();
-    };
-
     editBtn.addEventListener("mousedown", (ev) => ev.preventDefault());
     removeBtn.addEventListener("mousedown", (ev) => ev.preventDefault());
-    editBtn.addEventListener("click", () => run("edit"));
-    removeBtn.addEventListener("click", () => run("remove"));
+    editBtn.addEventListener("click", () => void runTooltipAction(app, host, "edit"));
+    removeBtn.addEventListener("click", () => void runTooltipAction(app, host, "remove"));
     placeTooltip(tooltipEl, host);
 }
 
@@ -781,6 +792,13 @@ export function installAnnotationHover(plugin: Plugin): void {
         }
         scheduleHideTooltip();
     });
-    window.addEventListener("scroll", hideTooltip, true);
-    plugin.register(() => window.removeEventListener("scroll", hideTooltip, true));
+    const onScroll = (ev: Event): void => {
+        const target = ev.target;
+        if (target instanceof Node && tooltipEl?.contains(target)) {
+            return;
+        }
+        hideTooltip();
+    };
+    window.addEventListener("scroll", onScroll, true);
+    plugin.register(() => window.removeEventListener("scroll", onScroll, true));
 }
