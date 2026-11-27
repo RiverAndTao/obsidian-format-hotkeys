@@ -1894,11 +1894,159 @@ class FormatHotkeysSettingTab extends ObsidianApi.PluginSettingTab {
     }
 }
 
+/** 高亮范围拖动用的纯偏移计算。文档坐标含 span 标签，展开坐标是拿掉这一对标签之后的位置。 */
+function openLen(ann) {
+    return ann.innerFrom - ann.from;
+}
+function closeLen(ann) {
+    return ann.to - ann.innerTo;
+}
+function innerLen(ann) {
+    return ann.innerTo - ann.innerFrom;
+}
+/** 把当前文档位置换成「去掉这对标签之后」的位置 */
+function unwrapPos(ann, pos) {
+    const open = openLen(ann);
+    const close = closeLen(ann);
+    const inner = innerLen(ann);
+    if (pos <= ann.from) {
+        return pos;
+    }
+    if (pos >= ann.to) {
+        return pos - open - close;
+    }
+    if (pos < ann.innerFrom) {
+        return ann.from;
+    }
+    if (pos <= ann.innerTo) {
+        return ann.from + (pos - ann.innerFrom);
+    }
+    return ann.from + inner;
+}
+/** 展开坐标里的起点，对应回当前文档（可见文字上） */
+function startDocPos(ann, ns) {
+    if (ns < ann.from) {
+        return ns;
+    }
+    return ann.innerFrom + (ns - ann.from);
+}
+/** 展开坐标里的终点（不含），对应回当前文档 */
+function endDocPos(ann, ne) {
+    const originNe = ann.from + innerLen(ann);
+    if (ne <= originNe) {
+        return ann.innerFrom + (ne - ann.from);
+    }
+    return ann.to + (ne - originNe);
+}
+function resizedInner(doc, ann, ns, ne) {
+    if (ann.innerFrom < ann.from || ann.innerTo < ann.innerFrom || ann.to < ann.innerTo) {
+        return null;
+    }
+    const inner = doc.slice(ann.innerFrom, ann.innerTo);
+    const unwrapped = doc.slice(0, ann.from) + inner + doc.slice(ann.to);
+    if (ns < 0 || ne > unwrapped.length || ne <= ns) {
+        return null;
+    }
+    return unwrapped.slice(ns, ne);
+}
+/** 拖动过程中，相对原高亮多出来和被裁掉的当前文档区间 */
+function previewSegments(ann, ns, ne) {
+    const originNs = ann.from;
+    const originNe = ann.from + innerLen(ann);
+    const add = [];
+    const cut = [];
+    if (ns < originNs) {
+        add.push([ns, originNs]);
+    }
+    else if (ns > originNs) {
+        cut.push([ann.innerFrom, ann.innerFrom + (ns - originNs)]);
+    }
+    if (ne > originNe) {
+        add.push([ann.to, ann.to + (ne - originNe)]);
+    }
+    else if (ne < originNe) {
+        cut.push([ann.innerTo - (originNe - ne), ann.innerTo]);
+    }
+    return { add, cut };
+}
+function unwrappedIndexToDoc(ann, index) {
+    const inner = innerLen(ann);
+    if (index < ann.from) {
+        return index;
+    }
+    if (index < ann.from + inner) {
+        return ann.innerFrom + (index - ann.from);
+    }
+    return ann.to + (index - ann.from - inner);
+}
+/** 避免把一个代理对从中间切开 */
+function snapUnwrappedIndex(doc, ann, index, edge) {
+    const len = doc.length - openLen(ann) - closeLen(ann);
+    if (index <= 0 || index >= len) {
+        return Math.max(0, Math.min(len, index));
+    }
+    const curr = doc.charCodeAt(unwrappedIndexToDoc(ann, index));
+    const prev = doc.charCodeAt(unwrappedIndexToDoc(ann, index - 1));
+    if (prev >= 0xd800 && prev <= 0xdbff && curr >= 0xdc00 && curr <= 0xdfff) {
+        return edge === "start" ? index - 1 : index + 1;
+    }
+    return index;
+}
+/**
+ * 拖动不能穿过的区间（其它批注、代码块），坐标是当前文档。
+ * 另外停在空行处，避免一下扫进下一段。
+ */
+function limitsFromBlocks(doc, ann, outside) {
+    const open = openLen(ann);
+    const close = closeLen(ann);
+    const inner = doc.slice(ann.innerFrom, ann.innerTo);
+    const originNs = ann.from;
+    const originNe = originNs + inner.length;
+    const unwrappedLen = doc.length - open - close;
+    let minNs = 0;
+    let maxNe = unwrappedLen;
+    for (const [from, to] of outside) {
+        if (to <= ann.from) {
+            minNs = Math.max(minNs, to);
+        }
+        else if (from >= ann.to) {
+            maxNe = Math.min(maxNe, from - open - close);
+        }
+    }
+    const unwrapped = doc.slice(0, ann.from) + inner + doc.slice(ann.to);
+    const blank = /\n[ \t]*\n/g;
+    let match;
+    while ((match = blank.exec(unwrapped))) {
+        const after = match.index + match[0].length;
+        if (after <= originNs) {
+            minNs = Math.max(minNs, after);
+        }
+        else if (match.index >= originNe) {
+            maxNe = Math.min(maxNe, match.index);
+            break;
+        }
+    }
+    if (minNs > originNs) {
+        minNs = originNs;
+    }
+    if (maxNe < originNe) {
+        maxNe = originNe;
+    }
+    if (minNs < 0) {
+        minNs = 0;
+    }
+    if (maxNe > unwrappedLen) {
+        maxNe = unwrappedLen;
+    }
+    return { minNs, maxNe };
+}
+
 /**
  * 选区高亮 + 悬停批注。
  * 写法放在笔记正文里，阅读视图和源码模式都能看到：
  * <span class="fh-anno" data-color="yellow" data-fh-id="ab12cd" data-comment="解释">原文</span>
- * 有解释时只靠悬停弹出，正文不再加下方点状线。
+ * 有解释时悬停弹出。点进弹出层后会保持打开，方便改文字和颜色。
+ * 源码模式下高亮两端可拖动，用来调整高亮范围。
  */
 const ANNO_COLORS = ["yellow", "green", "blue", "pink", "orange"];
 const COLOR_LABEL = {
@@ -2086,7 +2234,7 @@ class AnnotationModal extends ObsidianApi.Modal {
         contentEl.addClass("fh-anno-modal");
         titleEl.setText(this.titleText);
         contentEl.createEl("p", {
-            text: "高亮会留在原文上。写下解释后，鼠标移到高亮上就会显示。解释可以留空，只保留高亮。",
+            text: "高亮会留在原文上。写下解释后，鼠标移到高亮上就会显示，点进去即可修改。源码模式里可以拖高亮两端调整范围。解释可以留空，只保留高亮。",
             cls: "fh-anno-modal-desc",
         });
         const colors = contentEl.createDiv({ cls: "fh-anno-colors" });
@@ -2343,12 +2491,35 @@ function buildAnnotationDecorations(view) {
     }
     return builder.finish();
 }
+/** 光标只在标签上时才需要重画；在正文里点一下不要拆掉高亮节点，否则弹出层会跟着缩回去 */
+let noteAnnotationDocChanged = (_view) => {
+};
+function revealSignature(view) {
+    const doc = view.state.doc.toString();
+    let key = "";
+    for (const ann of findAnnotations(doc)) {
+        key += revealsSource(view, ann) ? "1" : "0";
+    }
+    return key;
+}
 const annotationPlugin = view.ViewPlugin.fromClass(class {
     constructor(view) {
         this.decorations = buildAnnotationDecorations(view);
+        this.revealKey = revealSignature(view);
     }
     update(update) {
-        if (update.docChanged || update.selectionSet) {
+        if (update.docChanged) {
+            this.decorations = buildAnnotationDecorations(update.view);
+            this.revealKey = revealSignature(update.view);
+            noteAnnotationDocChanged(update.view);
+            return;
+        }
+        if (!update.selectionSet) {
+            return;
+        }
+        const key = revealSignature(update.view);
+        if (key !== this.revealKey) {
+            this.revealKey = key;
             this.decorations = buildAnnotationDecorations(update.view);
         }
     }
@@ -2358,38 +2529,141 @@ const annotationPlugin = view.ViewPlugin.fromClass(class {
 function createAnnotationExtension() {
     return annotationPlugin;
 }
-let tooltipEl = null;
-let currentHost = null;
-let hideTimer = null;
-function removeTooltip() {
-    tooltipEl === null || tooltipEl === void 0 ? void 0 : tooltipEl.remove();
-    tooltipEl = null;
-    currentHost = null;
+let hoverApp = null;
+let session = null;
+let hoverToken = 0;
+let lastX = 0;
+let lastY = 0;
+let placeRaf = 0;
+let saving = false;
+function clampNum(n, min, max) {
+    return Math.max(min, Math.min(max, n));
 }
-function hideTooltip() {
-    if (hideTimer !== null) {
-        window.clearTimeout(hideTimer);
-        hideTimer = null;
+function clearPreviews() {
+    if (!session) {
+        return;
     }
-    removeTooltip();
+    for (const el of session.previews) {
+        el.remove();
+    }
+    session.previews = [];
 }
-function scheduleHideTooltip() {
-    if (hideTimer !== null) {
-        window.clearTimeout(hideTimer);
+function closeSession() {
+    var _a, _b;
+    if (placeRaf) {
+        window.cancelAnimationFrame(placeRaf);
+        placeRaf = 0;
     }
-    hideTimer = window.setTimeout(() => {
-        hideTimer = null;
-        removeTooltip();
-    }, 220);
-}
-function cancelHideTooltip() {
-    if (hideTimer !== null) {
-        window.clearTimeout(hideTimer);
-        hideTimer = null;
+    if (!session) {
+        return;
     }
+    if (session.hideTimer !== null) {
+        window.clearTimeout(session.hideTimer);
+    }
+    (_a = session.tip) === null || _a === void 0 ? void 0 : _a.remove();
+    (_b = session.bridge) === null || _b === void 0 ? void 0 : _b.remove();
+    for (const grip of session.grips) {
+        grip.remove();
+    }
+    clearPreviews();
+    document.body.classList.remove("fh-anno-resizing");
+    session = null;
 }
 function destroyAnnotationTooltip() {
-    hideTooltip();
+    closeSession();
+}
+function keepOpen() {
+    if (!session) {
+        return false;
+    }
+    if (session.resize || session.engaged || session.dirty) {
+        return true;
+    }
+    const active = document.activeElement;
+    return !!(session.tip && active instanceof Node && session.tip.contains(active));
+}
+function cancelHide() {
+    if ((session === null || session === void 0 ? void 0 : session.hideTimer) != null) {
+        window.clearTimeout(session.hideTimer);
+        session.hideTimer = null;
+    }
+}
+function scheduleHide() {
+    if (!session || keepOpen()) {
+        return;
+    }
+    cancelHide();
+    session.hideTimer = window.setTimeout(() => {
+        if (!session) {
+            return;
+        }
+        session.hideTimer = null;
+        if (keepOpen()) {
+            return;
+        }
+        const under = document.elementFromPoint(lastX, lastY);
+        if (under && isSessionNode(under)) {
+            return;
+        }
+        closeSession();
+    }, 1000);
+}
+function annoHostOf(node) {
+    const el = node instanceof Element ? node : node.parentElement;
+    if (!el) {
+        return null;
+    }
+    const host = el.closest(".fh-anno");
+    return host instanceof HTMLElement ? host : null;
+}
+function quickSame(host) {
+    var _a, _b, _c;
+    if (!session) {
+        return false;
+    }
+    if (host === session.host) {
+        return true;
+    }
+    if (session.cm) {
+        try {
+            const pos = session.cm.posAtDOM(host, 0);
+            return pos >= session.ann.innerFrom && pos <= session.ann.innerTo;
+        }
+        catch (_d) {
+            return false;
+        }
+    }
+    const id = (_a = host.getAttribute("data-fh-id")) !== null && _a !== void 0 ? _a : "";
+    if (id && session.ann.id && id === session.ann.id) {
+        return true;
+    }
+    const comment = (_b = host.getAttribute("data-comment")) !== null && _b !== void 0 ? _b : "";
+    return comment === session.ann.comment && ((_c = host.textContent) !== null && _c !== void 0 ? _c : "") === session.ann.inner;
+}
+function isSessionNode(node) {
+    if (!session) {
+        return false;
+    }
+    if (session.tip && (node === session.tip || session.tip.contains(node))) {
+        return true;
+    }
+    if (session.bridge && (node === session.bridge || session.bridge.contains(node))) {
+        return true;
+    }
+    for (const grip of session.grips) {
+        if (node === grip || grip.contains(node)) {
+            return true;
+        }
+    }
+    const host = annoHostOf(node);
+    return !!host && quickSame(host);
+}
+function pointerInTipBox() {
+    if (!(session === null || session === void 0 ? void 0 : session.tip)) {
+        return false;
+    }
+    const rect = session.tip.getBoundingClientRect();
+    return lastX >= rect.left && lastX <= rect.right && lastY >= rect.top && lastY <= rect.bottom;
 }
 function viewContaining(app, el) {
     let found = null;
@@ -2485,16 +2759,114 @@ function applyHoverEdit(view, ann, build) {
         yield view.app.vault.modify(file, data.slice(0, fresh.from) + built + data.slice(fresh.to));
     });
 }
-function placeTooltip(tip, anchor) {
+function commentFromHost(host) {
+    const data = host.getAttribute("data-comment");
+    if (data && data.trim()) {
+        host.removeAttribute("title");
+        return;
+    }
+    const title = host.getAttribute("title");
+    if (title && title.trim()) {
+        host.setAttribute("data-comment", title);
+        host.removeAttribute("title");
+    }
+}
+function outsideBlocks(doc, ann) {
+    const blocks = [];
+    for (const [from, to] of fenceRanges$1(doc)) {
+        if (to <= ann.from || from >= ann.to) {
+            blocks.push([from, to]);
+        }
+    }
+    for (const other of findAnnotations(doc)) {
+        if (other.from === ann.from && other.to === ann.to) {
+            continue;
+        }
+        if (other.to <= ann.from || other.from >= ann.to) {
+            blocks.push([other.from, other.to]);
+        }
+    }
+    return blocks;
+}
+function boxesBetween(view, from, to) {
+    if (to <= from) {
+        return [];
+    }
+    let start;
+    let end;
+    try {
+        start = view.domAtPos(from, 1);
+        end = view.domAtPos(to, -1);
+    }
+    catch (_a) {
+        return [];
+    }
+    const range = document.createRange();
+    try {
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset);
+    }
+    catch (_b) {
+        return [];
+    }
+    const boxes = [];
+    for (const rect of Array.from(range.getClientRects())) {
+        if (rect.width < 0.5 || rect.height < 0.5) {
+            continue;
+        }
+        boxes.push({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom });
+    }
+    return boxes;
+}
+function nearestBox(boxes, y) {
+    let best = boxes[0];
+    let bestDist = Infinity;
+    for (const box of boxes) {
+        const mid = (box.top + box.bottom) / 2;
+        const dist = Math.abs(mid - y);
+        if (dist < bestDist) {
+            best = box;
+            bestDist = dist;
+        }
+    }
+    return best;
+}
+function anchorBox() {
+    if (!session) {
+        return null;
+    }
+    if (session.cm) {
+        const boxes = boxesBetween(session.cm, session.ann.innerFrom, session.ann.innerTo);
+        if (boxes.length) {
+            return nearestBox(boxes, session.pointerY);
+        }
+        const caret = session.cm.coordsAtPos(session.ann.innerFrom, 1);
+        if (!caret) {
+            return null;
+        }
+        return { left: caret.left, right: caret.right, top: caret.top, bottom: caret.bottom };
+    }
+    if (!session.host.isConnected) {
+        return null;
+    }
+    const rect = session.host.getBoundingClientRect();
+    if (rect.width < 0.5 && rect.height < 0.5) {
+        return null;
+    }
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+}
+function placeTip(tip, box) {
+    var _a;
     tip.style.visibility = "hidden";
     tip.style.display = "block";
-    const rect = anchor.getBoundingClientRect();
     const width = tip.offsetWidth;
     const height = tip.offsetHeight;
-    let left = rect.left;
-    let top = rect.top - height - 8;
+    const pointerY = (_a = session === null || session === void 0 ? void 0 : session.pointerY) !== null && _a !== void 0 ? _a : box.top;
+    const lineTop = Math.min(box.bottom, Math.max(box.top, pointerY));
+    let top = lineTop - height - 8;
+    let left = box.left;
     if (top < 8) {
-        top = rect.bottom + 8;
+        top = Math.min(box.bottom, lineTop) + 8;
     }
     if (left + width > window.innerWidth - 8) {
         left = window.innerWidth - width - 8;
@@ -2502,125 +2874,733 @@ function placeTooltip(tip, anchor) {
     if (left < 8) {
         left = 8;
     }
-    tip.style.left = `${left}px`;
-    tip.style.top = `${top}px`;
+    if (top + height > window.innerHeight - 8) {
+        top = Math.max(8, window.innerHeight - height - 8);
+    }
+    const coversPointer = lastX >= left && lastX <= left + width && lastY >= top && lastY <= top + height;
+    if (coversPointer) {
+        const below = lastY + 18;
+        if (below + height <= window.innerHeight - 8) {
+            top = below;
+        }
+        else {
+            top = Math.max(8, lastY - height - 18);
+        }
+    }
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
     tip.style.visibility = "visible";
 }
-function runTooltipAction(app, host, action) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const view = viewContaining(app, host);
-        hideTooltip();
-        if (!view) {
-            new ObsidianApi.Notice("找不到所在笔记");
-            return;
-        }
-        const data = yield readNote(view);
-        if (data === null) {
-            new ObsidianApi.Notice("读不到笔记内容");
-            return;
-        }
-        const ann = locate(data, view, host);
-        if (!ann) {
-            new ObsidianApi.Notice("找不到这条批注");
-            return;
-        }
-        if (action === "remove") {
-            yield applyHoverEdit(view, ann, (fresh) => fresh.inner);
-            return;
-        }
-        if (view.getMode() === "source") {
-            yield editAnnotation(app, view.editor, ann);
-            return;
-        }
-        const result = yield askAnnotation(app, { comment: ann.comment, color: ann.color }, "编辑批注", true);
-        if (!result) {
-            return;
-        }
-        if (result.action === "remove") {
-            yield applyHoverEdit(view, ann, (fresh) => fresh.inner);
-            return;
-        }
-        yield applyHoverEdit(view, ann, (fresh) => buildAnnotation(fresh.inner, result.color, result.comment, fresh.id || createId(data)));
-    });
-}
-function showTooltip(app, host, comment) {
-    if (!tooltipEl) {
-        tooltipEl = document.body.createDiv({ cls: "fh-anno-tip" });
+function placeBridge(bridge, box, tip) {
+    const tipRect = tip.getBoundingClientRect();
+    const above = tipRect.bottom <= box.top + 2;
+    const below = tipRect.top >= box.bottom - 2;
+    if (!above && !below) {
+        bridge.style.display = "none";
+        return;
     }
-    currentHost = host;
-    tooltipEl.empty();
-    tooltipEl.createDiv({ cls: "fh-anno-tip-label", text: "批注" });
-    const body = tooltipEl.createDiv({ cls: "fh-anno-tip-text" });
-    body.textContent = comment;
-    const actions = tooltipEl.createDiv({ cls: "fh-anno-tip-actions" });
-    const editBtn = actions.createEl("button", { text: "编辑", cls: "fh-anno-tip-btn", attr: { type: "button" } });
+    const top = above ? tipRect.bottom - 10 : box.bottom - 10;
+    const rawHeight = above ? box.top - tipRect.bottom + 20 : tipRect.top - box.bottom + 20;
+    const height = Math.max(12, Math.min(40, rawHeight));
+    const left = Math.min(tipRect.left, box.left);
+    const right = Math.max(tipRect.right, box.right);
+    bridge.style.display = "block";
+    bridge.style.left = `${Math.round(left)}px`;
+    bridge.style.top = `${Math.round(top)}px`;
+    bridge.style.width = `${Math.max(24, Math.round(right - left))}px`;
+    bridge.style.height = `${Math.round(height)}px`;
+}
+function caretBox(view, pos, side) {
+    const caret = view.coordsAtPos(pos, side);
+    if (!caret) {
+        return null;
+    }
+    return { left: caret.left, right: caret.right, top: caret.top, bottom: caret.bottom };
+}
+function placeGripElement(el, box, edge) {
+    if (!box) {
+        el.style.display = "none";
+        return;
+    }
+    const width = 18;
+    const overlap = 6;
+    const height = Math.max(16, Math.min(32, box.bottom - box.top));
+    const x = edge === "start" ? box.left - (width - overlap) : Math.max(box.left, box.right) - overlap;
+    const y = (box.top + box.bottom) / 2 - height / 2;
+    el.style.display = "flex";
+    el.style.width = `${width}px`;
+    el.style.height = `${height}px`;
+    el.style.left = `${Math.round(x)}px`;
+    el.style.top = `${Math.round(y)}px`;
+}
+function placeGrips() {
+    if (!session || session.grips.length < 2 || !session.cm || session.resize) {
+        return;
+    }
+    const ann = session.ann;
+    placeGripElement(session.grips[0], caretBox(session.cm, ann.innerFrom, 1), "start");
+    const endPos = ann.innerTo > ann.innerFrom ? ann.innerTo : ann.innerFrom;
+    placeGripElement(session.grips[1], caretBox(session.cm, endPos, -1), "end");
+}
+function placeAll() {
+    if (!session || session.resize) {
+        return;
+    }
+    placeGrips();
+    if (!session.tip) {
+        return;
+    }
+    const box = anchorBox();
+    if (!box) {
+        return;
+    }
+    placeTip(session.tip, box);
+    if (session.bridge) {
+        placeBridge(session.bridge, box, session.tip);
+    }
+}
+function fitTextarea(input) {
+    input.style.height = "0px";
+    const next = Math.min(220, Math.max(52, input.scrollHeight));
+    input.style.height = `${next}px`;
+}
+function paintSwatches(colors, s) {
+    colors.empty();
+    for (const color of ANNO_COLORS) {
+        const btn = colors.createEl("button", {
+            cls: `fh-anno-swatch${color === s.color ? " is-active" : ""}`,
+            attr: { type: "button", "aria-label": COLOR_LABEL[color], title: COLOR_LABEL[color] },
+        });
+        btn.style.background = SWATCH[color];
+        btn.addEventListener("click", () => {
+            var _a, _b;
+            if (!session) {
+                return;
+            }
+            session.color = color;
+            session.engaged = true;
+            const text = (_b = (_a = session.textarea) === null || _a === void 0 ? void 0 : _a.value) !== null && _b !== void 0 ? _b : session.ann.comment;
+            session.dirty = color !== session.ann.color || text.trim() !== session.ann.comment;
+            if (session.tip) {
+                session.tip.dataset.color = color;
+            }
+            paintSwatches(colors, session);
+        });
+    }
+}
+function buildTip(s) {
+    const tip = document.body.createDiv({ cls: "fh-anno-tip" });
+    tip.style.visibility = "hidden";
+    tip.dataset.color = s.color;
+    const label = tip.createDiv({ cls: "fh-anno-tip-label", text: "批注" });
+    label.title = "在外面点一下，或按 Esc 收起";
+    const colors = tip.createDiv({ cls: "fh-anno-colors" });
+    paintSwatches(colors, s);
+    const input = tip.createEl("textarea", {
+        cls: "fh-anno-tip-input",
+        attr: { rows: "2", placeholder: "写解释，可留空" },
+    });
+    input.value = s.ann.comment;
+    input.addEventListener("input", () => {
+        if (!session) {
+            return;
+        }
+        session.engaged = true;
+        session.dirty = input.value.trim() !== session.ann.comment || session.color !== session.ann.color;
+        fitTextarea(input);
+    });
+    input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) {
+            ev.preventDefault();
+            void finishSession("save");
+        }
+    });
+    tip.addEventListener("pointerdown", (ev) => {
+        if (session) {
+            session.engaged = true;
+            cancelHide();
+        }
+        ev.stopPropagation();
+    });
+    tip.addEventListener("focusin", () => {
+        if (!session) {
+            return;
+        }
+        session.engaged = true;
+        cancelHide();
+    });
+    const actions = tip.createDiv({ cls: "fh-anno-tip-actions" });
+    const saveBtn = actions.createEl("button", {
+        text: "保存",
+        cls: "fh-anno-tip-btn mod-cta",
+        attr: { type: "button", title: "Ctrl+Enter" },
+    });
     const removeBtn = actions.createEl("button", { text: "移除", cls: "fh-anno-tip-btn", attr: { type: "button" } });
-    editBtn.addEventListener("mousedown", (ev) => ev.preventDefault());
-    removeBtn.addEventListener("mousedown", (ev) => ev.preventDefault());
-    editBtn.addEventListener("click", () => void runTooltipAction(app, host, "edit"));
-    removeBtn.addEventListener("click", () => void runTooltipAction(app, host, "remove"));
-    placeTooltip(tooltipEl, host);
+    saveBtn.addEventListener("click", () => void finishSession("save"));
+    removeBtn.addEventListener("click", () => void finishSession("remove"));
+    s.tip = tip;
+    s.textarea = input;
+    s.bridge = document.body.createDiv({ cls: "fh-anno-bridge" });
+    fitTextarea(input);
 }
-function commentFromHost(host) {
-    const data = host.getAttribute("data-comment");
-    if (data && data.trim()) {
-        host.removeAttribute("title");
-        return data;
-    }
-    const title = host.getAttribute("title");
-    if (title && title.trim()) {
-        host.setAttribute("data-comment", title);
-        host.removeAttribute("title");
-        return title;
-    }
-    return "";
+function buildGrips(s) {
+    const start = document.body.createDiv({
+        cls: "fh-anno-grip",
+        attr: { "data-edge": "start", "aria-label": "拖动调整高亮起点", title: "拖动调整高亮起点" },
+    });
+    const end = document.body.createDiv({
+        cls: "fh-anno-grip",
+        attr: { "data-edge": "end", "aria-label": "拖动调整高亮终点", title: "拖动调整高亮终点" },
+    });
+    start.addEventListener("pointerdown", (ev) => beginResize(ev, "start"));
+    end.addEventListener("pointerdown", (ev) => beginResize(ev, "end"));
+    s.grips = [start, end];
 }
-function installAnnotationHover(plugin) {
-    const app = plugin.app;
-    plugin.registerDomEvent(document, "mouseover", (evt) => {
-        const target = evt.target;
-        if (!(target instanceof Element)) {
-            return;
+function sameHit(hit) {
+    if (!session) {
+        return false;
+    }
+    if (session.ann.id && hit.ann.id === session.ann.id) {
+        const copies = findAnnotations(hit.doc).filter((item) => item.id === session.ann.id);
+        const fresh = resolveAnnotation(hit.doc, session.ann);
+        if (copies.length === 1 && fresh) {
+            return fresh.from === hit.ann.from && fresh.to === hit.ann.to;
         }
-        const host = target.closest(".fh-anno");
-        if (host instanceof HTMLElement) {
-            const comment = commentFromHost(host);
-            if (!comment.trim()) {
-                scheduleHideTooltip();
-                return;
-            }
-            cancelHideTooltip();
-            if (host === currentHost && tooltipEl) {
-                return;
-            }
-            showTooltip(app, host, comment);
-            return;
+        if (fresh && fresh.from === hit.ann.from && fresh.to === hit.ann.to) {
+            return true;
         }
-        if (target.closest(".fh-anno-tip")) {
-            cancelHideTooltip();
-            return;
+    }
+    return hit.ann.from === session.ann.from && hit.ann.to === session.ann.to;
+}
+function adopt(hit, host, pointerY) {
+    var _a;
+    if (session && sameHit(hit)) {
+        const moved = session.ann.from !== hit.ann.from || session.ann.to !== hit.ann.to || session.ann.inner !== hit.ann.inner;
+        session.ann = hit.ann;
+        session.doc = hit.doc;
+        session.host = host;
+        session.md = hit.md;
+        session.cm = (_a = hit.cm) !== null && _a !== void 0 ? _a : session.cm;
+        if (!session.engaged && !session.dirty) {
+            session.pointerY = pointerY;
         }
-    });
-    plugin.registerDomEvent(document, "mouseout", (evt) => {
-        const related = evt.relatedTarget;
-        if (related instanceof Element && (related.closest(".fh-anno") || related.closest(".fh-anno-tip"))) {
-            return;
+        cancelHide();
+        if (moved) {
+            placeAll();
         }
-        const fromAnno = evt.target instanceof Element && (evt.target.closest(".fh-anno") || evt.target.closest(".fh-anno-tip"));
-        if (!fromAnno) {
-            return;
+        if (session.cm && session.md.getMode() === "source" && session.grips.length === 0) {
+            buildGrips(session);
+            placeGrips();
         }
-        scheduleHideTooltip();
-    });
-    const onScroll = (ev) => {
-        const target = ev.target;
-        if (target instanceof Node && (tooltipEl === null || tooltipEl === void 0 ? void 0 : tooltipEl.contains(target))) {
-            return;
-        }
-        hideTooltip();
+        return;
+    }
+    if ((session === null || session === void 0 ? void 0 : session.engaged) || (session === null || session === void 0 ? void 0 : session.dirty) || (session === null || session === void 0 ? void 0 : session.resize)) {
+        return;
+    }
+    closeSession();
+    const next = {
+        host,
+        md: hit.md,
+        cm: hit.cm,
+        ann: hit.ann,
+        doc: hit.doc,
+        pointerY,
+        tip: null,
+        bridge: null,
+        textarea: null,
+        grips: [],
+        previews: [],
+        color: hit.ann.color,
+        engaged: false,
+        dirty: false,
+        applying: false,
+        hideTimer: null,
+        resize: null,
     };
+    session = next;
+    if (hit.ann.comment.trim()) {
+        buildTip(next);
+    }
+    if (hit.cm && hit.md.getMode() === "source") {
+        buildGrips(next);
+    }
+    placeAll();
+}
+function openFromHost(host, pointerY) {
+    var _a;
+    const app = hoverApp;
+    if (!app) {
+        return;
+    }
+    const md = viewContaining(app, host);
+    if (!md) {
+        return;
+    }
+    commentFromHost(host);
+    if (md.getMode() === "source") {
+        hoverToken++;
+        let doc;
+        try {
+            doc = md.editor.getValue();
+        }
+        catch (_b) {
+            return;
+        }
+        const ann = locate(doc, md, host);
+        if (!ann) {
+            return;
+        }
+        const cm = (_a = view.EditorView.findFromDOM(host)) !== null && _a !== void 0 ? _a : cmOf(md.editor);
+        adopt({ md, cm, ann, doc }, host, pointerY);
+        return;
+    }
+    const token = ++hoverToken;
+    void readNote(md).then((data) => {
+        if (token !== hoverToken || data === null) {
+            return;
+        }
+        if (!host.isConnected || !host.matches(":hover")) {
+            return;
+        }
+        const ann = locate(data, md, host);
+        if (!ann) {
+            return;
+        }
+        adopt({ md, cm: null, ann, doc: data }, host, pointerY);
+    });
+}
+function paintBoxes(cm, from, to, kind, color) {
+    if (!session) {
+        return;
+    }
+    for (const box of boxesBetween(cm, from, to)) {
+        const el = document.body.createDiv({ cls: `fh-anno-preview is-${kind}` });
+        el.dataset.color = color;
+        el.style.left = `${box.left}px`;
+        el.style.top = `${box.top}px`;
+        el.style.width = `${Math.max(2, box.right - box.left)}px`;
+        el.style.height = `${Math.max(2, box.bottom - box.top)}px`;
+        session.previews.push(el);
+    }
+}
+function paintDrag() {
+    if (!(session === null || session === void 0 ? void 0 : session.resize) || !session.cm) {
+        return;
+    }
+    const drag = session.resize;
+    const cm = session.cm;
+    clearPreviews();
+    const parts = previewSegments(drag.ann, drag.ns, drag.ne);
+    for (const [from, to] of parts.add) {
+        paintBoxes(cm, from, to, "add", drag.ann.color);
+    }
+    for (const [from, to] of parts.cut) {
+        paintBoxes(cm, from, to, "cut", drag.ann.color);
+    }
+    if (session.grips.length >= 2) {
+        placeGripElement(session.grips[0], caretBox(cm, startDocPos(drag.ann, drag.ns), 1), "start");
+        placeGripElement(session.grips[1], caretBox(cm, endDocPos(drag.ann, drag.ne), -1), "end");
+    }
+}
+function beginResize(ev, edge) {
+    if (!(session === null || session === void 0 ? void 0 : session.cm) || session.resize) {
+        return;
+    }
+    ev.preventDefault();
+    ev.stopPropagation();
+    const cm = session.cm;
+    const doc = cm.state.doc.toString();
+    const fresh = resolveAnnotation(doc, session.ann);
+    if (!fresh) {
+        new ObsidianApi.Notice("找不到这条批注");
+        return;
+    }
+    session.ann = fresh;
+    session.doc = doc;
+    const limits = limitsFromBlocks(doc, fresh, outsideBlocks(doc, fresh));
+    const originNs = fresh.from;
+    const originNe = fresh.from + (fresh.innerTo - fresh.innerFrom);
+    session.resize = {
+        ann: fresh,
+        doc,
+        edge,
+        ns: originNs,
+        ne: originNe,
+        originNs,
+        originNe,
+        minNs: Math.min(limits.minNs, originNs),
+        maxNe: Math.max(limits.maxNe, originNe),
+    };
+    session.engaged = true;
+    const grip = ev.currentTarget;
+    if (grip instanceof HTMLElement) {
+        grip.classList.add("is-dragging");
+        try {
+            grip.setPointerCapture(ev.pointerId);
+        }
+        catch (_a) {
+            // 捕获失败时仍靠 window 上的 pointerup
+        }
+    }
+    document.body.classList.add("fh-anno-resizing");
+    if (session.tip) {
+        session.tip.style.visibility = "hidden";
+    }
+    if (session.bridge) {
+        session.bridge.style.display = "none";
+    }
+}
+function reattachHost() {
+    if (!(session === null || session === void 0 ? void 0 : session.cm)) {
+        return;
+    }
+    const pos = session.ann.innerFrom < session.ann.innerTo ? session.ann.innerFrom : session.ann.from;
+    let dom;
+    try {
+        dom = session.cm.domAtPos(pos, 1);
+    }
+    catch (_a) {
+        return;
+    }
+    const base = dom.node instanceof Element ? dom.node : dom.node.parentElement;
+    const host = base === null || base === void 0 ? void 0 : base.closest(".fh-anno");
+    if (host instanceof HTMLElement) {
+        session.host = host;
+    }
+}
+function endResize(commit) {
+    var _a, _b, _c;
+    const drag = session === null || session === void 0 ? void 0 : session.resize;
+    if (!drag || !session) {
+        return;
+    }
+    session.resize = null;
+    clearPreviews();
+    document.body.classList.remove("fh-anno-resizing");
+    for (const grip of session.grips) {
+        grip.classList.remove("is-dragging");
+    }
+    const showTip = () => {
+        if (session === null || session === void 0 ? void 0 : session.tip) {
+            session.tip.style.visibility = "visible";
+        }
+        placeAll();
+    };
+    const changed = drag.ns !== drag.originNs || drag.ne !== drag.originNe;
+    if (!commit || !changed || !session.cm) {
+        showTip();
+        return;
+    }
+    const cm = session.cm;
+    const md = session.md;
+    const doc = cm.state.doc.toString();
+    if (doc !== drag.doc) {
+        new ObsidianApi.Notice("笔记已变化，请重试");
+        showTip();
+        return;
+    }
+    const fresh = resolveAnnotation(doc, drag.ann);
+    if (!fresh) {
+        new ObsidianApi.Notice("找不到这条批注");
+        closeSession();
+        return;
+    }
+    let ns = snapUnwrappedIndex(doc, fresh, drag.ns, "start");
+    let ne = snapUnwrappedIndex(doc, fresh, drag.ne, "end");
+    if (ne <= ns) {
+        showTip();
+        return;
+    }
+    ns = clampNum(ns, drag.minNs, ne - 1);
+    ne = clampNum(ne, ns + 1, drag.maxNe);
+    const inner = resizedInner(doc, fresh, ns, ne);
+    if (inner == null || inner === fresh.inner) {
+        showTip();
+        return;
+    }
+    if (/<\/?span\b/i.test(inner)) {
+        new ObsidianApi.Notice("这里不能扩展高亮");
+        showTip();
+        return;
+    }
+    const comment = (_b = (_a = session.textarea) === null || _a === void 0 ? void 0 : _a.value) !== null && _b !== void 0 ? _b : fresh.comment;
+    const color = session.color;
+    const id = fresh.id || createId(doc);
+    const built = buildAnnotation(inner, color, comment, id);
+    session.applying = true;
+    try {
+        replaceSpan(md.editor, fresh, built);
+    }
+    finally {
+        session.applying = false;
+    }
+    const after = md.editor.getValue();
+    if (after === doc) {
+        showTip();
+        return;
+    }
+    session.dirty = false;
+    const updated = (_c = findAnnotations(after)
+        .filter((item) => item.id === id && item.inner === inner)
+        .sort((a, b) => Math.abs(a.from - fresh.from) - Math.abs(b.from - fresh.from))[0]) !== null && _c !== void 0 ? _c : null;
+    if (updated && session) {
+        session.ann = updated;
+        session.doc = after;
+        session.color = updated.color;
+        if (session.textarea) {
+            session.textarea.value = updated.comment;
+        }
+        if (session.tip) {
+            session.tip.dataset.color = updated.color;
+        }
+    }
+    window.requestAnimationFrame(() => {
+        if (!session) {
+            return;
+        }
+        reattachHost();
+        showTip();
+    });
+}
+function finishSession(mode) {
+    var _a, _b;
+    return __awaiter(this, void 0, void 0, function* () {
+        const current = session;
+        if (!current || saving) {
+            return;
+        }
+        const ann = current.ann;
+        const md = current.md;
+        const color = current.color;
+        const idDoc = current.doc;
+        const comment = (_b = (_a = current.textarea) === null || _a === void 0 ? void 0 : _a.value) !== null && _b !== void 0 ? _b : ann.comment;
+        const changed = comment.trim() !== ann.comment || color !== ann.color;
+        if (mode !== "remove" && !changed) {
+            closeSession();
+            return;
+        }
+        closeSession();
+        saving = true;
+        try {
+            if (mode === "remove") {
+                yield applyHoverEdit(md, ann, (fresh) => fresh.inner);
+                return;
+            }
+            yield applyHoverEdit(md, ann, (fresh) => buildAnnotation(fresh.inner, color, comment, fresh.id || createId(idDoc)));
+        }
+        finally {
+            saving = false;
+        }
+    });
+}
+function onMouseOver(evt) {
+    lastX = evt.clientX;
+    lastY = evt.clientY;
+    const target = evt.target;
+    if (!(target instanceof Node) || (session === null || session === void 0 ? void 0 : session.resize)) {
+        return;
+    }
+    if ((session === null || session === void 0 ? void 0 : session.tip) && (target === session.tip || session.tip.contains(target))) {
+        cancelHide();
+        if (pointerInTipBox()) {
+            session.engaged = true;
+        }
+        return;
+    }
+    if ((session === null || session === void 0 ? void 0 : session.bridge) && (target === session.bridge || session.bridge.contains(target))) {
+        cancelHide();
+        return;
+    }
+    if (session && session.grips.some((grip) => grip === target || grip.contains(target))) {
+        cancelHide();
+        return;
+    }
+    const host = annoHostOf(target);
+    if (!host) {
+        return;
+    }
+    commentFromHost(host);
+    if (session && quickSame(host)) {
+        session.host = host;
+        cancelHide();
+        return;
+    }
+    if ((session === null || session === void 0 ? void 0 : session.engaged) || (session === null || session === void 0 ? void 0 : session.dirty) || (session === null || session === void 0 ? void 0 : session.resize)) {
+        return;
+    }
+    openFromHost(host, evt.clientY);
+}
+function onMouseOut(evt) {
+    if (!session || session.resize) {
+        return;
+    }
+    const target = evt.target;
+    if (!(target instanceof Node) || !isSessionNode(target)) {
+        return;
+    }
+    const related = evt.relatedTarget;
+    if (related instanceof Node && isSessionNode(related)) {
+        return;
+    }
+    if (related == null) {
+        const under = document.elementFromPoint(evt.clientX, evt.clientY);
+        if (under && isSessionNode(under)) {
+            return;
+        }
+    }
+    if (keepOpen()) {
+        return;
+    }
+    scheduleHide();
+}
+function onPointerDown(ev) {
+    if (!session || session.resize) {
+        return;
+    }
+    const target = ev.target;
+    if (!(target instanceof Node)) {
+        return;
+    }
+    if (session.tip && session.tip.contains(target)) {
+        session.engaged = true;
+        cancelHide();
+        return;
+    }
+    if (session.grips.some((grip) => grip.contains(target))) {
+        return;
+    }
+    if (session.bridge && session.bridge.contains(target)) {
+        return;
+    }
+    if (session.engaged || session.dirty) {
+        void finishSession("save-if-dirty");
+        return;
+    }
+    closeSession();
+}
+function onKeyDown(ev) {
+    if (ev.key !== "Escape" || !session) {
+        return;
+    }
+    ev.preventDefault();
+    ev.stopPropagation();
+    closeSession();
+}
+function onPointerMove(ev) {
+    lastX = ev.clientX;
+    lastY = ev.clientY;
+    const drag = session === null || session === void 0 ? void 0 : session.resize;
+    const cm = session === null || session === void 0 ? void 0 : session.cm;
+    if (!drag || !cm || !session) {
+        return;
+    }
+    const pos = cm.posAtCoords({ x: ev.clientX, y: ev.clientY });
+    if (pos == null) {
+        return;
+    }
+    const next = snapUnwrappedIndex(drag.doc, drag.ann, unwrapPos(drag.ann, pos), drag.edge);
+    if (drag.edge === "start") {
+        const ns = clampNum(next, drag.minNs, drag.ne - 1);
+        if (ns === drag.ns) {
+            return;
+        }
+        drag.ns = ns;
+    }
+    else {
+        const ne = clampNum(next, drag.ns + 1, drag.maxNe);
+        if (ne === drag.ne) {
+            return;
+        }
+        drag.ne = ne;
+    }
+    paintDrag();
+}
+function onPointerUp() {
+    if (!(session === null || session === void 0 ? void 0 : session.resize)) {
+        return;
+    }
+    endResize(true);
+}
+function onPointerCancel() {
+    if (!(session === null || session === void 0 ? void 0 : session.resize)) {
+        return;
+    }
+    endResize(false);
+}
+function onScroll(ev) {
+    var _a;
+    if (!session) {
+        return;
+    }
+    const target = ev.target;
+    if (target instanceof Node && ((_a = session.tip) === null || _a === void 0 ? void 0 : _a.contains(target))) {
+        return;
+    }
+    if (session.resize) {
+        return;
+    }
+    placeAll();
+}
+function onWindowResize() {
+    if (!session || session.resize) {
+        return;
+    }
+    placeAll();
+}
+noteAnnotationDocChanged = (view) => {
+    if (!session || session.cm !== view) {
+        return;
+    }
+    const doc = view.state.doc.toString();
+    const fresh = resolveAnnotation(doc, session.ann);
+    if (session.applying) {
+        if (fresh) {
+            session.ann = fresh;
+            session.doc = doc;
+        }
+        return;
+    }
+    if (session.resize) {
+        session.resize = null;
+        clearPreviews();
+        document.body.classList.remove("fh-anno-resizing");
+    }
+    if (!fresh) {
+        closeSession();
+        return;
+    }
+    session.ann = fresh;
+    session.doc = doc;
+    if (placeRaf) {
+        return;
+    }
+    placeRaf = window.requestAnimationFrame(() => {
+        placeRaf = 0;
+        if (!session || session.resize) {
+            return;
+        }
+        placeAll();
+    });
+};
+function installAnnotationHover(plugin) {
+    hoverApp = plugin.app;
+    plugin.registerDomEvent(document, "mouseover", onMouseOver);
+    plugin.registerDomEvent(document, "mouseout", onMouseOut);
+    plugin.registerDomEvent(document, "pointerdown", onPointerDown);
+    plugin.registerDomEvent(document, "keydown", onKeyDown, true);
     window.addEventListener("scroll", onScroll, true);
-    plugin.register(() => window.removeEventListener("scroll", onScroll, true));
+    window.addEventListener("resize", onWindowResize);
+    window.addEventListener("pointermove", onPointerMove, true);
+    window.addEventListener("pointerup", onPointerUp, true);
+    window.addEventListener("pointercancel", onPointerCancel, true);
+    plugin.register(() => {
+        window.removeEventListener("scroll", onScroll, true);
+        window.removeEventListener("resize", onWindowResize);
+        window.removeEventListener("pointermove", onPointerMove, true);
+        window.removeEventListener("pointerup", onPointerUp, true);
+        window.removeEventListener("pointercancel", onPointerCancel, true);
+        closeSession();
+    });
 }
 
 class LanguageInputModal extends ObsidianApi.Modal {
