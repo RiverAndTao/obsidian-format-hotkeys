@@ -57,15 +57,44 @@ export function endDocPos(ann: AnnoOffsets, ne: number): number {
 }
 
 export function resizedInner(doc: string, ann: AnnoOffsets, ns: number, ne: number): string | null {
+    const edit = resizeReplacement(doc, ann, ns, ne);
+    return edit ? edit.inner : null;
+}
+
+/**
+ * 拖动后要替换的文档区间。
+ * 扩进去的文字从原处拿掉，收出去的文字留在高亮外面，不会复制一份。
+ */
+export function resizeReplacement(
+    doc: string,
+    ann: AnnoOffsets,
+    ns: number,
+    ne: number
+): { from: number; to: number; before: string; inner: string; after: string } | null {
     if (ann.innerFrom < ann.from || ann.innerTo < ann.innerFrom || ann.to < ann.innerTo) {
         return null;
     }
     const inner = doc.slice(ann.innerFrom, ann.innerTo);
+    const originNs = ann.from;
+    const originNe = originNs + inner.length;
     const unwrapped = doc.slice(0, ann.from) + inner + doc.slice(ann.to);
     if (ns < 0 || ne > unwrapped.length || ne <= ns) {
         return null;
     }
-    return unwrapped.slice(ns, ne);
+    const fromU = Math.min(ns, originNs);
+    const toU = Math.max(ne, originNe);
+    const docFrom = fromU < originNs ? fromU : ann.from;
+    const docTo = toU > originNe ? ann.to + (toU - originNe) : ann.to;
+    const middle = unwrapped.slice(fromU, toU);
+    const relNs = ns - fromU;
+    const relNe = ne - fromU;
+    return {
+        from: docFrom,
+        to: docTo,
+        before: middle.slice(0, relNs),
+        inner: middle.slice(relNs, relNe),
+        after: middle.slice(relNe),
+    };
 }
 
 /** 拖动过程中，相对原高亮多出来和被裁掉的当前文档区间 */

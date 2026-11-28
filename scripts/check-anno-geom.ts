@@ -2,6 +2,7 @@ import {
     endDocPos,
     limitsFromBlocks,
     previewSegments,
+    resizeReplacement,
     resizedInner,
     snapUnwrappedIndex,
     startDocPos,
@@ -35,6 +36,16 @@ function run(): void {
     assert(resizedInner(sample.doc, sample.ann, sample.ann.from + 1, sample.ann.from + 5) === "orld", "向右收起点");
     assert(resizedInner(sample.doc, sample.ann, sample.ann.from - 1, sample.ann.from + 5) === " world", "向左扩一格");
     assert(resizedInner(sample.doc, sample.ann, 2, 2) === null, "空范围拒绝");
+
+    const apply = (ns: number, ne: number): string => {
+        const edit = resizeReplacement(sample.doc, sample.ann, ns, ne);
+        assert(edit !== null, "替换区间");
+        return sample.doc.slice(0, edit.from) + edit.before + "[" + edit.inner + "]" + edit.after + sample.doc.slice(edit.to);
+    };
+    assert(apply(sample.ann.from, sample.ann.from + 6) === "hello [world ]tail", "向右扩是移进去，不复制空格");
+    assert(apply(sample.ann.from - 1, sample.ann.from + 5) === "hello[ world] tail", "向左扩是移进去");
+    assert(apply(sample.ann.from, sample.ann.from + 4) === "hello [worl]d tail", "向右收是移出来");
+    assert(apply(sample.ann.from + 1, sample.ann.from + 5) === "hello w[orld] tail", "向左收是移出来");
 
     const { ann } = sample;
     assert(unwrapPos(ann, 0) === 0, "标签前");

@@ -12,7 +12,7 @@ import {
     endDocPos,
     limitsFromBlocks,
     previewSegments,
-    resizedInner,
+    resizeReplacement,
     snapUnwrappedIndex,
     startDocPos,
     unwrapPos,
@@ -1634,12 +1634,12 @@ function endResize(commit: boolean): void {
     }
     ns = clampNum(ns, drag.minNs, ne - 1);
     ne = clampNum(ne, ns + 1, drag.maxNe);
-    const inner = resizedInner(doc, fresh, ns, ne);
-    if (inner == null || inner === fresh.inner) {
+    const edit = resizeReplacement(doc, fresh, ns, ne);
+    if (!edit || (edit.before === "" && edit.after === "" && edit.inner === fresh.inner)) {
         showTip();
         return;
     }
-    if (/<\/?span\b/i.test(inner)) {
+    if (/<\/?span\b/i.test(edit.before + edit.inner + edit.after)) {
         new Notice("这里不能扩展高亮");
         showTip();
         return;
@@ -1647,10 +1647,11 @@ function endResize(commit: boolean): void {
     const comment = session.textarea?.value ?? fresh.comment;
     const color = session.color;
     const id = fresh.id || createId(doc);
-    const built = buildAnnotation(inner, color, comment, id);
+    const built = buildAnnotation(edit.inner, color, comment, id);
+    const next = edit.before + built + edit.after;
     session.applying = true;
     try {
-        replaceSpan(md.editor, fresh, built);
+        md.editor.replaceRange(next, offsetToPos(doc, edit.from), offsetToPos(doc, edit.to));
     } finally {
         session.applying = false;
     }
@@ -1662,7 +1663,7 @@ function endResize(commit: boolean): void {
     session.dirty = false;
     const updated =
         findAnnotations(after)
-            .filter((item) => item.id === id && item.inner === inner)
+            .filter((item) => item.id === id && item.inner === edit.inner)
             .sort((a, b) => Math.abs(a.from - fresh.from) - Math.abs(b.from - fresh.from))[0] ?? null;
     if (updated && session) {
         session.ann = updated;

@@ -2184,16 +2184,35 @@ function endDocPos(ann, ne) {
     }
     return ann.to + (ne - originNe);
 }
-function resizedInner(doc, ann, ns, ne) {
+/**
+ * 拖动后要替换的文档区间。
+ * 扩进去的文字从原处拿掉，收出去的文字留在高亮外面，不会复制一份。
+ */
+function resizeReplacement(doc, ann, ns, ne) {
     if (ann.innerFrom < ann.from || ann.innerTo < ann.innerFrom || ann.to < ann.innerTo) {
         return null;
     }
     const inner = doc.slice(ann.innerFrom, ann.innerTo);
+    const originNs = ann.from;
+    const originNe = originNs + inner.length;
     const unwrapped = doc.slice(0, ann.from) + inner + doc.slice(ann.to);
     if (ns < 0 || ne > unwrapped.length || ne <= ns) {
         return null;
     }
-    return unwrapped.slice(ns, ne);
+    const fromU = Math.min(ns, originNs);
+    const toU = Math.max(ne, originNe);
+    const docFrom = fromU < originNs ? fromU : ann.from;
+    const docTo = toU > originNe ? ann.to + (toU - originNe) : ann.to;
+    const middle = unwrapped.slice(fromU, toU);
+    const relNs = ns - fromU;
+    const relNe = ne - fromU;
+    return {
+        from: docFrom,
+        to: docTo,
+        before: middle.slice(0, relNs),
+        inner: middle.slice(relNs, relNe),
+        after: middle.slice(relNe),
+    };
 }
 /** 拖动过程中，相对原高亮多出来和被裁掉的当前文档区间 */
 function previewSegments(ann, ns, ne) {
@@ -3754,12 +3773,12 @@ function endResize(commit) {
     }
     ns = clampNum(ns, drag.minNs, ne - 1);
     ne = clampNum(ne, ns + 1, drag.maxNe);
-    const inner = resizedInner(doc, fresh, ns, ne);
-    if (inner == null || inner === fresh.inner) {
+    const edit = resizeReplacement(doc, fresh, ns, ne);
+    if (!edit || (edit.before === "" && edit.after === "" && edit.inner === fresh.inner)) {
         showTip();
         return;
     }
-    if (/<\/?span\b/i.test(inner)) {
+    if (/<\/?span\b/i.test(edit.before + edit.inner + edit.after)) {
         new ObsidianApi.Notice("这里不能扩展高亮");
         showTip();
         return;
@@ -3767,10 +3786,11 @@ function endResize(commit) {
     const comment = (_b = (_a = session.textarea) === null || _a === void 0 ? void 0 : _a.value) !== null && _b !== void 0 ? _b : fresh.comment;
     const color = session.color;
     const id = fresh.id || createId(doc);
-    const built = buildAnnotation(inner, color, comment, id);
+    const built = buildAnnotation(edit.inner, color, comment, id);
+    const next = edit.before + built + edit.after;
     session.applying = true;
     try {
-        replaceSpan(md.editor, fresh, built);
+        md.editor.replaceRange(next, offsetToPos(doc, edit.from), offsetToPos(doc, edit.to));
     }
     finally {
         session.applying = false;
@@ -3782,7 +3802,7 @@ function endResize(commit) {
     }
     session.dirty = false;
     const updated = (_c = findAnnotations(after)
-        .filter((item) => item.id === id && item.inner === inner)
+        .filter((item) => item.id === id && item.inner === edit.inner)
         .sort((a, b) => Math.abs(a.from - fresh.from) - Math.abs(b.from - fresh.from))[0]) !== null && _c !== void 0 ? _c : null;
     if (updated && session) {
         session.ann = updated;
