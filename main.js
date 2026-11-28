@@ -3966,242 +3966,149 @@ function onKeyDown(ev) {
     ev.stopPropagation();
     closeSession();
 }
-/** 量一个可见字的屏幕盒子。标签被替换掉以后没有字形，不当成光标位。 */
-function glyphBox(view, pos) {
-    const doc = view.state.doc;
-    if (pos < 0 || pos >= doc.length) {
+function rectOnRow(rect, y) {
+    return y >= rect.top - 8 && y <= rect.bottom + 8;
+}
+function lineHoldsPointer(line, y) {
+    const box = line.getBoundingClientRect();
+    return y >= box.top - 12 && y <= box.bottom + 12;
+}
+function lineUnderPointer(view, x, y) {
+    const stack = document.elementsFromPoint(x, y);
+    for (const el of stack) {
+        if (!(el instanceof Element) || !view.dom.contains(el)) {
+            continue;
+        }
+        const line = el.closest(".cm-line");
+        if (line instanceof HTMLElement && view.contentDOM.contains(line) && lineHoldsPointer(line, y)) {
+            return line;
+        }
+    }
+    const rough = view.posAtCoords({ x, y }, false);
+    if (rough == null) {
         return null;
     }
-    const fromCaret = () => {
-        const caret = view.coordsAtPos(pos, 1);
-        if (!caret || caret.bottom - caret.top < 1 || caret.right - caret.left < 2) {
-            return null;
-        }
-        return { left: caret.left, right: caret.right, top: caret.top, bottom: caret.bottom };
-    };
-    let start;
-    let end;
     try {
-        start = view.domAtPos(pos, 1);
-        end = view.domAtPos(pos + 1, -1);
+        const dom = view.domAtPos(rough, 1);
+        const base = dom.node instanceof Element ? dom.node : dom.node.parentElement;
+        const line = base === null || base === void 0 ? void 0 : base.closest(".cm-line");
+        if (line instanceof HTMLElement && view.contentDOM.contains(line) && lineHoldsPointer(line, y)) {
+            return line;
+        }
     }
     catch (_a) {
-        return fromCaret();
-    }
-    if (start.node !== end.node || start.offset !== end.offset) {
-        const range = document.createRange();
-        try {
-            range.setStart(start.node, start.offset);
-            range.setEnd(end.node, end.offset);
-            for (const rect of Array.from(range.getClientRects())) {
-                if (rect.width < 0.4 || rect.height < 1) {
-                    continue;
-                }
-                return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
-            }
-        }
-        catch (_b) {
-            // 落到光标坐标
-        }
-    }
-    return fromCaret();
-}
-function glyphOnRow(box, y) {
-    return y >= box.top - 6 && y <= box.bottom + 6;
-}
-function posFromCaret(view, x, y) {
-    var _a, _b, _c, _d;
-    const root = view.dom.ownerDocument;
-    const api = root;
-    let node = null;
-    let offset = 0;
-    const caret = (_b = (_a = api.caretPositionFromPoint) === null || _a === void 0 ? void 0 : _a.call(api, x, y)) !== null && _b !== void 0 ? _b : null;
-    if (caret) {
-        node = caret.offsetNode;
-        offset = caret.offset;
-    }
-    else {
-        const range = (_d = (_c = api.caretRangeFromPoint) === null || _c === void 0 ? void 0 : _c.call(api, x, y)) !== null && _d !== void 0 ? _d : null;
-        if (!range) {
-            return null;
-        }
-        node = range.startContainer;
-        offset = range.startOffset;
-    }
-    if (!node || !view.dom.contains(node)) {
         return null;
     }
-    try {
-        return view.posAtDOM(node, offset);
-    }
-    catch (_e) {
-        return null;
-    }
-}
-/** 指针所在的那一行。标签没有字形时向两侧找可见字，竖直方向对不上就丢掉。 */
-function pointerSeed(view, x, y) {
-    var _a;
-    const near = (pos) => {
-        if (pos == null || !Number.isFinite(pos)) {
-            return null;
-        }
-        const doc = view.state.doc;
-        if (!doc.length) {
-            return null;
-        }
-        const clamped = Math.max(0, Math.min(doc.length, pos));
-        const line = doc.lineAt(Math.min(clamped, doc.length));
-        const start = Math.max(line.from, Math.min(line.to - 1, clamped));
-        const at = (p) => (p >= line.from && p < line.to ? glyphBox(view, p) : null);
-        const direct = at(start);
-        if (direct && glyphOnRow(direct, y)) {
-            return start;
-        }
-        let otherRow = 0;
-        const span = line.to - line.from;
-        for (let d = 1; d <= span; d++) {
-            let sawOther = false;
-            for (const p of [start - d, start + d]) {
-                const box = at(p);
-                if (!box) {
-                    continue;
-                }
-                if (glyphOnRow(box, y)) {
-                    return p;
-                }
-                sawOther = true;
-            }
-            if (sawOther) {
-                otherRow++;
-            }
-            if (otherRow > 4 && d > 40) {
-                return null;
-            }
-        }
-        return null;
-    };
-    return (_a = near(posFromCaret(view, x, y))) !== null && _a !== void 0 ? _a : near(view.posAtCoords({ x, y }, false));
+    return null;
 }
 /**
- * 当前视觉行上每个可见字的左缘，再加行尾那一条右缘。
- * 标签没有字形，不会占一个光标位；相邻的字不会被并成一个。
+ * 高亮里面的字按「第几个可见字」对回正文，包含换行后拆开的同一段高亮。
+ * 文档偏移在藏掉的标签上没有字形，向里收会一直停在原来的边上。
  */
-function stopsForRow(view, seed, y) {
-    var _a;
-    const doc = view.state.doc;
-    const line = doc.lineAt(Math.max(0, Math.min(seed, doc.length)));
-    let origin = -1;
-    const span = line.to - line.from;
-    let missed = 0;
-    for (let d = 0; d <= span; d++) {
-        const candidates = d === 0 ? [Math.min(line.to - 1, Math.max(line.from, seed))] : [seed - d, seed + d];
-        let sawOff = false;
-        for (const pos of candidates) {
-            if (pos < line.from || pos >= line.to) {
+function posInHighlight(ann, text, offset) {
+    var _a, _b, _c, _d, _e;
+    const host = (_a = text.parentElement) === null || _a === void 0 ? void 0 : _a.closest(".fh-anno");
+    if (!(host instanceof HTMLElement)) {
+        return null;
+    }
+    const id = (_b = host.getAttribute("data-fh-id")) !== null && _b !== void 0 ? _b : "";
+    if (ann.id && id && id !== ann.id) {
+        return null;
+    }
+    const root = (_c = host.closest(".cm-content")) !== null && _c !== void 0 ? _c : host;
+    const hosts = ann.id && id === ann.id
+        ? Array.from(root.querySelectorAll(`.fh-anno[data-fh-id="${id}"]`))
+        : [host];
+    let index = 0;
+    let prevLine = null;
+    for (const el of hosts) {
+        const line = el.closest(".cm-line");
+        if (prevLine && line && line !== prevLine) {
+            index += 1;
+        }
+        if (line) {
+            prevLine = line;
+        }
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let current = walker.nextNode();
+        while (current) {
+            if (current === text) {
+                const at = ann.innerFrom + index + Math.max(0, Math.min(offset, text.data.length));
+                return Math.max(ann.innerFrom, Math.min(ann.innerTo, at));
+            }
+            index += (_e = (_d = current.textContent) === null || _d === void 0 ? void 0 : _d.length) !== null && _e !== void 0 ? _e : 0;
+            current = walker.nextNode();
+        }
+    }
+    return null;
+}
+function docPosOf(view, ann, text, offset) {
+    const inside = posInHighlight(ann, text, offset);
+    if (inside != null) {
+        return inside;
+    }
+    try {
+        return view.posAtDOM(text, offset);
+    }
+    catch (_a) {
+        return null;
+    }
+}
+function pushStop(stops, pos, x, top, bottom) {
+    const prev = stops[stops.length - 1];
+    if (prev && Math.abs(prev.x - x) < 0.5) {
+        return;
+    }
+    stops.push({ pos, x, top, bottom });
+}
+/** 这一视觉行上每个可见字的左缘。高亮内部的字也算，这样向里收才有落点。 */
+function stopsOnLine(view, ann, lineEl, y) {
+    const stops = [];
+    const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+        if (!(node instanceof Text) || node.data.length === 0) {
+            node = walker.nextNode();
+            continue;
+        }
+        const text = node;
+        let last = null;
+        for (let i = 0; i < text.data.length; i++) {
+            const range = document.createRange();
+            try {
+                range.setStart(text, i);
+                range.setEnd(text, i + 1);
+            }
+            catch (_a) {
                 continue;
             }
-            const box = glyphBox(view, pos);
-            if (!box) {
-                continue;
-            }
-            if (glyphOnRow(box, y)) {
-                origin = pos;
+            let rect = null;
+            for (const item of Array.from(range.getClientRects())) {
+                if (item.width < 0.4 || item.height < 1) {
+                    continue;
+                }
+                rect = item;
                 break;
             }
-            sawOff = true;
-        }
-        if (origin >= 0) {
-            break;
-        }
-        if (sawOff) {
-            missed++;
-        }
-        if (missed > 3 && d > 24) {
-            break;
-        }
-    }
-    if (origin < 0) {
-        return { key: "", stops: [] };
-    }
-    const originBox = glyphBox(view, origin);
-    let from = origin;
-    for (let pos = origin - 1; pos >= line.from; pos--) {
-        const box = glyphBox(view, pos);
-        if (!box) {
-            continue;
-        }
-        if (!glyphOnRow(box, y)) {
-            break;
-        }
-        from = pos;
-    }
-    let to = origin;
-    let lastBox = originBox;
-    for (let pos = origin + 1; pos < line.to; pos++) {
-        const box = glyphBox(view, pos);
-        if (!box) {
-            continue;
-        }
-        if (!glyphOnRow(box, y)) {
-            break;
-        }
-        to = pos;
-        lastBox = box;
-    }
-    const stops = [];
-    let prevX = Number.NaN;
-    for (let pos = from; pos <= to; pos++) {
-        const box = pos === origin ? originBox : pos === to ? lastBox : glyphBox(view, pos);
-        const measured = box && glyphOnRow(box, y) ? box : glyphBox(view, pos);
-        if (!measured || !glyphOnRow(measured, y)) {
-            continue;
-        }
-        if (stops.length && Math.abs(measured.left - prevX) < 0.5) {
-            stops[stops.length - 1].pos = pos;
-            continue;
-        }
-        stops.push({ pos, x: measured.left, top: measured.top, bottom: measured.bottom });
-        prevX = measured.left;
-        if (pos === to) {
-            stops.push({
-                pos: pos + 1,
-                x: measured.right,
-                top: measured.top,
-                bottom: measured.bottom,
-            });
-        }
-    }
-    const key = `${line.from}:${from}:${Math.round((_a = originBox === null || originBox === void 0 ? void 0 : originBox.top) !== null && _a !== void 0 ? _a : y)}`;
-    return { key, stops };
-}
-/** 高亮正文里的每个字都留一个光标位，避免行扫描在标签处停住后左边无法向右收。 */
-function withInnerGlyphs(view, ann, y, stops) {
-    const have = new Set(stops.map((stop) => stop.pos));
-    const next = stops.slice();
-    for (let pos = ann.innerFrom; pos < ann.innerTo; pos++) {
-        if (have.has(pos)) {
-            continue;
-        }
-        const box = glyphBox(view, pos);
-        if (!box || !glyphOnRow(box, y)) {
-            continue;
-        }
-        next.push({ pos, x: box.left, top: box.top, bottom: box.bottom });
-        have.add(pos);
-    }
-    next.sort((a, b) => a.x - b.x || a.pos - b.pos);
-    const unique = [];
-    for (const stop of next) {
-        const prev = unique[unique.length - 1];
-        if (prev && Math.abs(prev.x - stop.x) < 0.5) {
-            if (stop.pos > prev.pos) {
-                prev.pos = stop.pos;
+            if (!rect || !rectOnRow(rect, y)) {
+                continue;
             }
-            continue;
+            const pos = docPosOf(view, ann, text, i);
+            if (pos == null) {
+                continue;
+            }
+            pushStop(stops, pos, rect.left, rect.top, rect.bottom);
+            const after = docPosOf(view, ann, text, i + 1);
+            if (after != null) {
+                last = { pos: after, right: rect.right, top: rect.top, bottom: rect.bottom };
+            }
         }
-        unique.push(Object.assign({}, stop));
+        if (last) {
+            pushStop(stops, last.pos, last.right, last.top, last.bottom);
+        }
+        node = walker.nextNode();
     }
-    return unique;
+    return stops;
 }
 function closestStop(stops, x) {
     let best = null;
@@ -4228,17 +4135,13 @@ function trackDragCursor() {
     const onCachedRow = drag.stops.length > 0 &&
         drag.stops.some((stop) => lastY >= stop.top - 8 && lastY <= stop.bottom + 8);
     if (!onCachedRow) {
-        const seed = pointerSeed(cm, lastX, lastY);
-        if (seed == null) {
-            return;
-        }
-        const built = stopsForRow(cm, seed, lastY);
-        const stops = withInnerGlyphs(cm, drag.ann, lastY, built.stops);
+        const line = lineUnderPointer(cm, lastX, lastY);
+        const stops = line ? stopsOnLine(cm, drag.ann, line, lastY) : [];
         if (!stops.length) {
             return;
         }
         drag.stops = stops;
-        drag.stopsKey = built.key || "row";
+        drag.stopsKey = "row";
     }
     const hit = closestStop(drag.stops, lastX);
     if (!hit) {
