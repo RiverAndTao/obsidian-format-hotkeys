@@ -1142,29 +1142,56 @@ function placeGripElement(el: HTMLElement, box: Box | null, edge: "start" | "end
     el.style.top = `${Math.round(y)}px`;
 }
 
-function markBelongs(cm: EditorView, node: HTMLElement, ann: AnnotationSpan): boolean {
-    try {
-        const before = cm.posAtDOM(node, -1);
-        const after = cm.posAtDOM(node, 1);
-        return before < ann.innerTo && after > ann.innerFrom;
-    } catch {
-        const id = node.getAttribute("data-fh-id") ?? "";
-        return Boolean(ann.id && id && id === ann.id);
+function pushRects(rects: Box[], node: HTMLElement): void {
+    for (const rect of Array.from(node.getClientRects())) {
+        if (rect.width < 1 || rect.height < 1) {
+            continue;
+        }
+        rects.push({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom });
     }
 }
 
-/** 用高亮节点自己的矩形取开头和结尾，避免选区矩形把起点画到行首或和终点叠在一起 */
-function highlightEdges(cm: EditorView, ann: AnnotationSpan): { start: Box; end: Box } | null {
-    const rects: Box[] = [];
-    const nodes = cm.contentDOM.querySelectorAll<HTMLElement>(".fh-anno");
-    for (const node of Array.from(nodes)) {
-        if (!markBelongs(cm, node, ann)) {
-            continue;
+/**
+ * 直接量悬停的高亮色块。开头用第一行的左缘，结尾用最后一行的右缘。
+ * 不要用光标坐标：它会把两端都落到词尾，看起来像两个紫色光标。
+ */
+function highlightEdges(cm: EditorView, ann: AnnotationSpan, host: HTMLElement): { start: Box; end: Box } | null {
+    const nodes: HTMLElement[] = [];
+    const seen = new Set<HTMLElement>();
+    const add = (node: HTMLElement): void => {
+        if (seen.has(node) || !node.isConnected) {
+            return;
         }
-        for (const rect of Array.from(node.getClientRects())) {
-            if (rect.width < 0.5 || rect.height < 0.5) {
-                continue;
+        seen.add(node);
+        nodes.push(node);
+    };
+    if (host.classList.contains("fh-anno")) {
+        add(host);
+    }
+    const id = (ann.id || host.getAttribute("data-fh-id") || "").trim();
+    if (id) {
+        cm.contentDOM.querySelectorAll<HTMLElement>(".fh-anno").forEach((node) => {
+            if (node.getAttribute("data-fh-id") !== id) {
+                return;
             }
+            try {
+                const pos = cm.posAtDOM(node, 0);
+                if (pos < ann.innerFrom || pos >= ann.innerTo) {
+                    return;
+                }
+            } catch {
+                return;
+            }
+            add(node);
+        });
+    }
+    const rects: Box[] = [];
+    for (const node of nodes) {
+        pushRects(rects, node);
+    }
+    if (!rects.length && host.isConnected) {
+        const rect = host.getBoundingClientRect();
+        if (rect.width >= 1 && rect.height >= 1) {
             rects.push({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom });
         }
     }
@@ -1172,15 +1199,33 @@ function highlightEdges(cm: EditorView, ann: AnnotationSpan): { start: Box; end:
         return null;
     }
     rects.sort((a, b) => a.top - b.top || a.left - b.left);
-    const first = rects[0];
-    const last = rects[rects.length - 1];
-    const sameLine = Math.abs((first.top + first.bottom) / 2 - (last.top + last.bottom) / 2) < 4;
-    if (sameLine && last.right - first.left < 2) {
+    const firstLine = rects[0].top;
+    const lastLine = rects[rects.length - 1].top;
+    const head = rects.filter((rect) => Math.abs(rect.top - firstLine) < 4);
+    const tail = rects.filter((rect) => Math.abs(rect.top - lastLine) < 4);
+    let startX = Math.min(...head.map((rect) => rect.left));
+    let endX = Math.max(...tail.map((rect) => rect.right));
+    let startTop = Math.min(...head.map((rect) => rect.top));
+    let startBottom = Math.max(...head.map((rect) => rect.bottom));
+    let endTop = Math.min(...tail.map((rect) => rect.top));
+    let endBottom = Math.max(...tail.map((rect) => rect.bottom));
+    if (host.isConnected) {
+        const box = host.getBoundingClientRect();
+        if (box.width > 12 && endX - startX < Math.min(12, box.width * 0.5)) {
+            startX = box.left;
+            endX = box.right;
+            startTop = box.top;
+            startBottom = box.bottom;
+            endTop = box.top;
+            endBottom = box.bottom;
+        }
+    }
+    if (endX - startX < 2) {
         return null;
     }
     return {
-        start: { left: first.left, right: first.left, top: first.top, bottom: first.bottom },
-        end: { left: last.right, right: last.right, top: last.top, bottom: last.bottom },
+        start: { left: startX, right: startX, top: startTop, bottom: startBottom },
+        end: { left: endX, right: endX, top: endTop, bottom: endBottom },
     };
 }
 
@@ -1199,10 +1244,12 @@ function placeGrips(): void {
     }
     const cm = session.cm;
     const ann = session.ann;
-    const visual = highlightEdges(cm, ann);
+    const visual = highlightEdges(cm, ann, session.host);
     const endPos = ann.innerTo > ann.innerFrom ? ann.innerTo : ann.innerFrom;
-    placeGripElement(session.grips[0], visual?.start ?? caretEdge(cm, ann.innerFrom, "start"), "start");
-    placeGripElement(session.grips[1], visual?.end ?? caretEdge(cm, endPos, "end"), "end");
+    const start = visual?.start ?? caretEdge(cm, ann.innerFrom, "start");
+    const end = visual?.end ?? caretEdge(cm, endPos, "end");
+    placeGripElement(session.grips[0], start, "start");
+    placeGripElement(session.grips[1], end, "end");
 }
 
 function placeAll(): void {
