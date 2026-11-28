@@ -1122,6 +1122,246 @@ function convertSelectionToFraction(editor) {
     rewriteSelection(editor, convertTextToLatexFraction);
 }
 
+const DEFAULT_ANNO_PALETTE = [
+    { id: "yellow", name: "黄色", hex: "#ffd000" },
+    { id: "green", name: "绿色", hex: "#48bb78" },
+    { id: "blue", name: "蓝色", hex: "#589cf6" },
+    { id: "pink", name: "粉色", hex: "#ec78a8" },
+    { id: "orange", name: "橙色", hex: "#f2994a" },
+];
+const ID_RE = /^[a-z][a-z0-9]{0,15}$/;
+const HEX_RE = /^#[0-9a-f]{6}$/;
+const MAX_COLORS = 24;
+const EXTRA_HEX = ["#c084fc", "#38bdf8", "#f472b6", "#facc15", "#fb7185", "#a3e635", "#94a3b8"];
+function cloneAnnoPalette(palette) {
+    return palette.map((item) => ({ id: item.id, name: item.name, hex: item.hex }));
+}
+function normalizeAnnoPalette(raw) {
+    if (!Array.isArray(raw)) {
+        return cloneAnnoPalette(DEFAULT_ANNO_PALETTE);
+    }
+    const out = [];
+    const seen = new Set();
+    for (const item of raw) {
+        if (!item || typeof item !== "object") {
+            continue;
+        }
+        const rec = item;
+        const id = typeof rec.id === "string" ? rec.id.trim().toLowerCase() : "";
+        const hex = typeof rec.hex === "string" ? rec.hex.trim().toLowerCase() : "";
+        const name = typeof rec.name === "string" ? rec.name.trim() : "";
+        if (!ID_RE.test(id) || !HEX_RE.test(hex) || seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        out.push({ id, name: name || "颜色", hex });
+        if (out.length >= MAX_COLORS) {
+            break;
+        }
+    }
+    return out.length ? out : cloneAnnoPalette(DEFAULT_ANNO_PALETTE);
+}
+function defaultAnnoColorId(palette) {
+    var _a, _b;
+    return (_b = (_a = palette[0]) === null || _a === void 0 ? void 0 : _a.id) !== null && _b !== void 0 ? _b : "yellow";
+}
+function sanitizeColorId(id, fallback) {
+    const clean = id.trim().toLowerCase();
+    return ID_RE.test(clean) ? clean : fallback;
+}
+function createPaletteColorId(palette) {
+    const used = new Set(palette.map((item) => item.id));
+    for (let n = 0; n < 8; n++) {
+        const id = "c" + Math.random().toString(36).slice(2, 7);
+        if (ID_RE.test(id) && !used.has(id)) {
+            return id;
+        }
+    }
+    return "c" + Date.now().toString(36).slice(-5);
+}
+function hexToRgb(hex) {
+    const n = Number.parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rgba(hex, alpha) {
+    const [r, g, b] = hexToRgb(hex);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+function annoPaletteCss(palette) {
+    const rules = [];
+    for (const item of palette) {
+        if (!ID_RE.test(item.id) || !HEX_RE.test(item.hex)) {
+            continue;
+        }
+        const light = rgba(item.hex, 0.42);
+        const dark = rgba(item.hex, 0.3);
+        const id = item.id;
+        rules.push(`:is(.markdown-source-view, .markdown-preview-view, .markdown-rendered) .fh-anno[data-color="${id}"]{background-color:${light}}`, `body.theme-dark :is(.markdown-source-view, .markdown-preview-view, .markdown-rendered) .fh-anno[data-color="${id}"]{background-color:${dark}}`, `.fh-anno-preview.is-add[data-color="${id}"]{background:${light}}`, `body.theme-dark .fh-anno-preview.is-add[data-color="${id}"]{background:${dark}}`);
+    }
+    return rules.join("\n");
+}
+const STYLE_ID = "fh-anno-palette";
+function applyAnnoPalette(palette) {
+    let el = document.getElementById(STYLE_ID);
+    if (!(el instanceof HTMLStyleElement)) {
+        el = document.createElement("style");
+        el.id = STYLE_ID;
+        document.head.appendChild(el);
+    }
+    el.textContent = annoPaletteCss(palette);
+}
+function clearAnnoPalette() {
+    var _a;
+    (_a = document.getElementById(STYLE_ID)) === null || _a === void 0 ? void 0 : _a.remove();
+}
+function nextHex(palette) {
+    var _a;
+    const used = new Set(palette.map((item) => item.hex));
+    return (_a = EXTRA_HEX.find((hex) => !used.has(hex))) !== null && _a !== void 0 ? _a : "#a78bfa";
+}
+/** 设置页里的颜色列表：改色、改名、拖拽或上下移动排序、新增和删除 */
+function mountAnnoPaletteEditor(container, palette, commit) {
+    let items = cloneAnnoPalette(palette);
+    let dragIndex = null;
+    container.empty();
+    container.createEl("h3", { text: "批注颜色" });
+    container.createEl("p", {
+        text: "批注选色按这个顺序排列。可以改颜色和名称，拖左侧把手或用上下按钮调整顺序。改色后，笔记里同一种颜色的高亮会一起变。",
+        cls: "setting-item-description",
+    });
+    const list = container.createDiv({ cls: "fh-anno-palette" });
+    const persist = (rerender) => {
+        void Promise.resolve(commit(cloneAnnoPalette(items)));
+        if (rerender) {
+            render();
+        }
+    };
+    const clearDropMarks = () => {
+        list.querySelectorAll(".drop-before, .drop-after").forEach((el) => {
+            el.removeClass("drop-before");
+            el.removeClass("drop-after");
+        });
+    };
+    const move = (from, to) => {
+        if (to < 0 || to >= items.length || from === to) {
+            return;
+        }
+        const [row] = items.splice(from, 1);
+        items.splice(to, 0, row);
+        persist(true);
+    };
+    const render = () => {
+        list.empty();
+        items.forEach((item, index) => {
+            const row = list.createDiv({ cls: "fh-anno-palette-row" });
+            const grip = row.createSpan({ text: "≡", cls: "fh-anno-palette-grip" });
+            grip.setAttr("title", "拖拽调整顺序");
+            grip.draggable = true;
+            grip.addEventListener("dragstart", (evt) => {
+                dragIndex = index;
+                row.addClass("is-dragging");
+                if (evt.dataTransfer) {
+                    evt.dataTransfer.effectAllowed = "move";
+                    evt.dataTransfer.setData("text/plain", item.id);
+                }
+            });
+            grip.addEventListener("dragend", () => {
+                dragIndex = null;
+                row.removeClass("is-dragging");
+                clearDropMarks();
+            });
+            row.addEventListener("dragover", (evt) => {
+                if (dragIndex === null || dragIndex === index) {
+                    return;
+                }
+                evt.preventDefault();
+                if (evt.dataTransfer) {
+                    evt.dataTransfer.dropEffect = "move";
+                }
+                const rect = row.getBoundingClientRect();
+                const after = evt.clientY > rect.top + rect.height / 2;
+                clearDropMarks();
+                row.addClass(after ? "drop-after" : "drop-before");
+            });
+            row.addEventListener("drop", (evt) => {
+                evt.preventDefault();
+                const from = dragIndex;
+                const rect = row.getBoundingClientRect();
+                const after = evt.clientY > rect.top + rect.height / 2;
+                clearDropMarks();
+                dragIndex = null;
+                if (from === null || from === index) {
+                    return;
+                }
+                let insertAt = index + (after ? 1 : 0);
+                if (from < insertAt) {
+                    insertAt -= 1;
+                }
+                const moved = items.splice(from, 1)[0];
+                items.splice(insertAt, 0, moved);
+                persist(true);
+            });
+            const colorInput = row.createEl("input", { type: "color", cls: "fh-anno-palette-color" });
+            colorInput.value = item.hex;
+            colorInput.setAttr("aria-label", `${item.name}的颜色`);
+            colorInput.addEventListener("input", () => {
+                const hex = colorInput.value.trim().toLowerCase();
+                if (!HEX_RE.test(hex)) {
+                    return;
+                }
+                items[index].hex = hex;
+                persist(false);
+            });
+            const nameInput = row.createEl("input", { type: "text", cls: "fh-anno-palette-name" });
+            nameInput.value = item.name;
+            nameInput.placeholder = "颜色名称";
+            nameInput.addEventListener("input", () => {
+                items[index].name = nameInput.value;
+                persist(false);
+            });
+            nameInput.addEventListener("blur", () => {
+                const trimmed = nameInput.value.trim() || "颜色";
+                items[index].name = trimmed;
+                nameInput.value = trimmed;
+                persist(false);
+            });
+            const actions = row.createDiv({ cls: "fh-anno-palette-actions" });
+            const up = actions.createEl("button", { text: "上移", attr: { type: "button" } });
+            const down = actions.createEl("button", { text: "下移", attr: { type: "button" } });
+            const remove = actions.createEl("button", { text: "删除", attr: { type: "button" } });
+            up.disabled = index === 0;
+            down.disabled = index === items.length - 1;
+            remove.disabled = items.length <= 1;
+            up.addEventListener("click", () => move(index, index - 1));
+            down.addEventListener("click", () => move(index, index + 1));
+            remove.addEventListener("click", () => {
+                if (items.length <= 1) {
+                    new ObsidianApi.Notice("至少保留一种颜色");
+                    return;
+                }
+                items.splice(index, 1);
+                persist(true);
+            });
+        });
+    };
+    render();
+    const bar = container.createDiv({ cls: "fh-anno-palette-bar" });
+    const add = bar.createEl("button", { text: "添加颜色", cls: "mod-cta", attr: { type: "button" } });
+    const reset = bar.createEl("button", { text: "恢复默认", attr: { type: "button" } });
+    add.addEventListener("click", () => {
+        if (items.length >= MAX_COLORS) {
+            new ObsidianApi.Notice("最多 24 种颜色");
+            return;
+        }
+        items.push({ id: createPaletteColorId(items), name: "新颜色", hex: nextHex(items) });
+        persist(true);
+    });
+    reset.addEventListener("click", () => {
+        items = cloneAnnoPalette(DEFAULT_ANNO_PALETTE);
+        persist(true);
+    });
+}
+
 const HEADING_LEVELS = [1, 2, 3, 4, 5, 6];
 const HEADING_LABELS = {
     1: "一级标题",
@@ -1793,6 +2033,7 @@ const DEFAULT_SETTINGS = {
     typora: cloneTyporaStyle(DEFAULT_TYPORA_STYLE),
     restoreEditorPosition: true,
     tableWidthStable: true,
+    annoPalette: cloneAnnoPalette(DEFAULT_ANNO_PALETTE),
 };
 const TOOLBAR_BUTTON_LABELS = {
     "remove-blank-lines": "去除空格行",
@@ -1842,6 +2083,11 @@ class FormatHotkeysSettingTab extends ObsidianApi.PluginSettingTab {
             yield this.plugin.saveSettings();
             this.plugin.applyTableStable();
         })));
+        mountAnnoPaletteEditor(containerEl.createDiv(), this.plugin.settings.annoPalette, (next) => __awaiter(this, void 0, void 0, function* () {
+            this.plugin.settings.annoPalette = next;
+            applyAnnoPalette(next);
+            yield this.plugin.saveData(this.plugin.settings);
+        }));
         new ObsidianApi.Setting(containerEl)
             .setName("默认代码语言")
             .setDesc("Ctrl+Alt+D 创建代码块时使用的语言标识")
@@ -2041,29 +2287,20 @@ function limitsFromBlocks(doc, ann, outside) {
     return { minNs, maxNe };
 }
 
-/**
- * 选区高亮 + 悬停批注。
- * 写法放在笔记正文里，阅读视图和源码模式都能看到：
- * <span class="fh-anno" data-color="yellow" data-fh-id="ab12cd" data-comment="解释">原文</span>
- * 有解释时，指针在高亮上停留一会儿才弹出；移开高亮后马上收起。
- * 点进弹出层后会保持打开，方便改文字和颜色。
- * 源码模式下高亮开头和结尾各有一条绿色竖线，可以分别拖动调整范围。
- */
-const ANNO_COLORS = ["yellow", "green", "blue", "pink", "orange"];
-const COLOR_LABEL = {
-    yellow: "黄色",
-    green: "绿色",
-    blue: "蓝色",
-    pink: "粉色",
-    orange: "橙色",
-};
-const SWATCH = {
-    yellow: "#ffe08a",
-    green: "#b7ebc6",
-    blue: "#b9d6ff",
-    pink: "#ffc6de",
-    orange: "#ffd0a8",
-};
+const COLOR_ID = /^[a-z][a-z0-9]{0,15}$/;
+let readPalette = () => cloneAnnoPalette(DEFAULT_ANNO_PALETTE);
+function bindAnnoPalette(get) {
+    readPalette = () => {
+        const list = get();
+        return list.length ? list : cloneAnnoPalette(DEFAULT_ANNO_PALETTE);
+    };
+}
+function palette() {
+    return readPalette();
+}
+function fallbackColor() {
+    return defaultAnnoColorId(palette());
+}
 const hideTag = view.Decoration.mark({ class: "fh-anno-tag" });
 function encodeAttr(text) {
     return text
@@ -2098,8 +2335,8 @@ function parseAnnoAttrs(attrs) {
     if (!className || !className.split(/\s+/).includes("fh-anno")) {
         return null;
     }
-    const colorRaw = (_a = readAttr(attrs, "data-color")) !== null && _a !== void 0 ? _a : "yellow";
-    const color = ANNO_COLORS.includes(colorRaw) ? colorRaw : "yellow";
+    const colorRaw = (_a = readAttr(attrs, "data-color")) !== null && _a !== void 0 ? _a : "";
+    const color = COLOR_ID.test(colorRaw.trim().toLowerCase()) ? colorRaw.trim().toLowerCase() : fallbackColor();
     const comment = ((_c = (_b = readAttr(attrs, "data-comment")) !== null && _b !== void 0 ? _b : readAttr(attrs, "title")) !== null && _c !== void 0 ? _c : "").trim();
     const idRaw = (_d = readAttr(attrs, "data-fh-id")) !== null && _d !== void 0 ? _d : "";
     const id = /^[a-z0-9]{4,16}$/.test(idRaw) ? idRaw : "";
@@ -2167,7 +2404,7 @@ function findAnnotations(doc) {
     return out;
 }
 function buildAnnotation(inner, color, comment, id) {
-    const safeColor = ANNO_COLORS.includes(color) ? color : "yellow";
+    const safeColor = sanitizeColorId(color, fallbackColor());
     const safeId = /^[a-z0-9]{4,16}$/.test(id) ? id : "anno00";
     const parts = [`class="fh-anno"`, `data-color="${safeColor}"`, `data-fh-id="${safeId}"`];
     const text = comment.trim();
@@ -2235,20 +2472,26 @@ class AnnotationModal extends ObsidianApi.Modal {
         contentEl.addClass("fh-anno-modal");
         titleEl.setText(this.titleText);
         contentEl.createEl("p", {
-            text: "高亮会留在原文上。写下解释后，鼠标在高亮上停一会儿才会显示，移开就收起；点进去即可修改。源码模式里，高亮开头和结尾各有一条绿线，可以分别拖动调整范围。解释可以留空，只保留高亮。",
+            text: "高亮会留在原文上。写下解释后，鼠标在高亮上停一会儿才会显示，移开就收起；点进去即可修改。源码模式里，高亮开头和结尾各有一条紫线，可以分别拖动调整范围。解释可以留空，只保留高亮。",
             cls: "fh-anno-modal-desc",
         });
         const colors = contentEl.createDiv({ cls: "fh-anno-colors" });
         const paint = () => {
             colors.empty();
-            for (const color of ANNO_COLORS) {
+            for (const item of palette()) {
+                const active = item.id === this.color;
                 const btn = colors.createEl("button", {
-                    cls: `fh-anno-swatch${color === this.color ? " is-active" : ""}`,
-                    attr: { type: "button", "aria-label": COLOR_LABEL[color], title: COLOR_LABEL[color] },
+                    cls: `fh-anno-swatch${active ? " is-active" : ""}`,
+                    attr: {
+                        type: "button",
+                        "aria-label": item.name,
+                        "aria-pressed": active ? "true" : "false",
+                        title: item.name,
+                    },
                 });
-                btn.style.background = SWATCH[color];
+                btn.style.background = item.hex;
                 btn.addEventListener("click", () => {
-                    this.color = color;
+                    this.color = item.id;
                     paint();
                 });
             }
@@ -2367,7 +2610,7 @@ function promptAnnotation(app, editor) {
             new ObsidianApi.Notice("选区里已有 span 标签，请换一段文字");
             return;
         }
-        const result = yield askAnnotation(app, { comment: "", color: "yellow" }, "高亮并批注", false);
+        const result = yield askAnnotation(app, { comment: "", color: fallbackColor() }, "高亮并批注", false);
         if (!result || result.action !== "save") {
             return;
         }
@@ -3015,30 +3258,78 @@ function placeGripElement(el, box, edge) {
         return;
     }
     const height = Math.max(16, raw);
-    const hit = 12;
+    const line = 3;
     const boundary = edge === "start" ? box.left : Math.max(box.left, box.right);
-    const x = edge === "start" ? boundary - hit : boundary;
+    // 整条线放在高亮外侧，贴着边缘，避免被正文盖住后只看见结尾
+    const x = edge === "start" ? boundary - line : boundary;
     const y = box.top - (height - raw) / 2;
     el.style.display = "block";
-    el.style.width = `${hit}px`;
+    el.style.width = `${line}px`;
     el.style.height = `${Math.round(height)}px`;
     el.style.left = `${Math.round(x)}px`;
     el.style.top = `${Math.round(y)}px`;
 }
+function markBelongs(cm, node, ann) {
+    var _a;
+    try {
+        const before = cm.posAtDOM(node, -1);
+        const after = cm.posAtDOM(node, 1);
+        return before < ann.innerTo && after > ann.innerFrom;
+    }
+    catch (_b) {
+        const id = (_a = node.getAttribute("data-fh-id")) !== null && _a !== void 0 ? _a : "";
+        return Boolean(ann.id && id && id === ann.id);
+    }
+}
+/** 用高亮节点自己的矩形取开头和结尾，避免选区矩形把起点画到行首或和终点叠在一起 */
+function highlightEdges(cm, ann) {
+    const rects = [];
+    const nodes = cm.contentDOM.querySelectorAll(".fh-anno");
+    for (const node of Array.from(nodes)) {
+        if (!markBelongs(cm, node, ann)) {
+            continue;
+        }
+        for (const rect of Array.from(node.getClientRects())) {
+            if (rect.width < 0.5 || rect.height < 0.5) {
+                continue;
+            }
+            rects.push({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom });
+        }
+    }
+    if (!rects.length) {
+        return null;
+    }
+    rects.sort((a, b) => a.top - b.top || a.left - b.left);
+    const first = rects[0];
+    const last = rects[rects.length - 1];
+    const sameLine = Math.abs((first.top + first.bottom) / 2 - (last.top + last.bottom) / 2) < 4;
+    if (sameLine && last.right - first.left < 2) {
+        return null;
+    }
+    return {
+        start: { left: first.left, right: first.left, top: first.top, bottom: first.bottom },
+        end: { left: last.right, right: last.right, top: last.top, bottom: last.bottom },
+    };
+}
+function caretEdge(view, pos, edge) {
+    const caret = caretBox(view, pos, edge === "start" ? 1 : -1);
+    if (!caret) {
+        return null;
+    }
+    const x = edge === "start" ? caret.left : Math.max(caret.left, caret.right);
+    return { left: x, right: x, top: caret.top, bottom: caret.bottom };
+}
 function placeGrips() {
+    var _a, _b;
     if (!session || session.grips.length < 2 || !session.cm || session.resize) {
         return;
     }
+    const cm = session.cm;
     const ann = session.ann;
-    const boxes = boxesBetween(session.cm, ann.innerFrom, ann.innerTo);
-    if (boxes.length) {
-        placeGripElement(session.grips[0], boxes[0], "start");
-        placeGripElement(session.grips[1], boxes[boxes.length - 1], "end");
-        return;
-    }
+    const visual = highlightEdges(cm, ann);
     const endPos = ann.innerTo > ann.innerFrom ? ann.innerTo : ann.innerFrom;
-    placeGripElement(session.grips[0], caretBox(session.cm, ann.innerFrom, 1), "start");
-    placeGripElement(session.grips[1], caretBox(session.cm, endPos, -1), "end");
+    placeGripElement(session.grips[0], (_a = visual === null || visual === void 0 ? void 0 : visual.start) !== null && _a !== void 0 ? _a : caretEdge(cm, ann.innerFrom, "start"), "start");
+    placeGripElement(session.grips[1], (_b = visual === null || visual === void 0 ? void 0 : visual.end) !== null && _b !== void 0 ? _b : caretEdge(cm, endPos, "end"), "end");
 }
 function placeAll() {
     if (!session || session.resize) {
@@ -3064,23 +3355,29 @@ function fitTextarea(input) {
 }
 function paintSwatches(colors, s) {
     colors.empty();
-    for (const color of ANNO_COLORS) {
+    for (const item of palette()) {
+        const active = item.id === s.color;
         const btn = colors.createEl("button", {
-            cls: `fh-anno-swatch${color === s.color ? " is-active" : ""}`,
-            attr: { type: "button", "aria-label": COLOR_LABEL[color], title: COLOR_LABEL[color] },
+            cls: `fh-anno-swatch${active ? " is-active" : ""}`,
+            attr: {
+                type: "button",
+                "aria-label": item.name,
+                "aria-pressed": active ? "true" : "false",
+                title: item.name,
+            },
         });
-        btn.style.background = SWATCH[color];
+        btn.style.background = item.hex;
         btn.addEventListener("click", () => {
             var _a, _b;
             if (!session) {
                 return;
             }
-            session.color = color;
+            session.color = item.id;
             session.engaged = true;
             const text = (_b = (_a = session.textarea) === null || _a === void 0 ? void 0 : _a.value) !== null && _b !== void 0 ? _b : session.ann.comment;
-            session.dirty = color !== session.ann.color || text.trim() !== session.ann.comment;
+            session.dirty = item.id !== session.ann.color || text.trim() !== session.ann.comment;
             if (session.tip) {
-                session.tip.dataset.color = color;
+                session.tip.dataset.color = item.id;
             }
             paintSwatches(colors, session);
         });
@@ -3296,8 +3593,8 @@ function paintDrag() {
         paintBoxes(cm, from, to, "cut", drag.ann.color);
     }
     if (session.grips.length >= 2) {
-        placeGripElement(session.grips[0], caretBox(cm, startDocPos(drag.ann, drag.ns), 1), "start");
-        placeGripElement(session.grips[1], caretBox(cm, endDocPos(drag.ann, drag.ne), -1), "end");
+        placeGripElement(session.grips[0], caretEdge(cm, startDocPos(drag.ann, drag.ns), "start"), "start");
+        placeGripElement(session.grips[1], caretEdge(cm, endDocPos(drag.ann, drag.ne), "end"), "end");
     }
 }
 function beginResize(ev, edge) {
@@ -6989,6 +7286,8 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
     onload() {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.loadSettings();
+            bindAnnoPalette(() => this.settings.annoPalette);
+            applyAnnoPalette(this.settings.annoPalette);
             for (let level = 1; level <= 5; level++) {
                 this.addCommand({
                     id: `set-heading-${level}`,
@@ -7191,6 +7490,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
     onunload() {
         var _a, _b;
         destroyAnnotationTooltip();
+        clearAnnoPalette();
         this.writeDb();
         applyTableStableStyle(false);
         const bodyEl = document.body;
@@ -7484,6 +7784,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
             if (!Array.isArray(this.settings.codeLanguages) || this.settings.codeLanguages.length === 0) {
                 this.settings.codeLanguages = [...DEFAULT_SETTINGS.codeLanguages];
             }
+            this.settings.annoPalette = normalizeAnnoPalette(data === null || data === void 0 ? void 0 : data.annoPalette);
             // 兼容旧按钮 id；顿号已改 Alt+`，从工具栏移除
             if (Array.isArray(this.settings.toolbarButtonOrder)) {
                 this.settings.toolbarButtonOrder = this.settings.toolbarButtonOrder
@@ -7523,6 +7824,7 @@ class FormatHotkeysPlugin extends ObsidianApi.Plugin {
     saveSettings() {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.saveData(this.settings);
+            applyAnnoPalette(this.settings.annoPalette);
             this.toolbarManager.refresh();
         });
     }

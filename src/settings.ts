@@ -1,4 +1,5 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
+import { applyAnnoPalette, cloneAnnoPalette, DEFAULT_ANNO_PALETTE, mountAnnoPaletteEditor, type AnnoPaletteColor } from "./anno-palette";
 import type FormatHotkeysPlugin from "./main";
 import { DEFAULT_TYPORA_STYLE, TyporaStyleSettings, cloneTyporaStyle } from "./typora-style";
 import { TyporaSettingsPanel } from "./typora-settings-ui";
@@ -55,6 +56,8 @@ export interface FormatHotkeysSettings {
     restoreEditorPosition: boolean;
     /** 表格编辑宽度稳定：统一编辑态/预览态表格宽度，避免点击编辑时跳动 */
     tableWidthStable: boolean;
+    /** 批注高亮颜色，数组顺序就是选色顺序 */
+    annoPalette: AnnoPaletteColor[];
 }
 
 /** 当前布局版本：有快捷键的按钮移出工具栏，默认只保留常用项 */
@@ -80,6 +83,7 @@ export const DEFAULT_SETTINGS: FormatHotkeysSettings = {
     typora: cloneTyporaStyle(DEFAULT_TYPORA_STYLE),
     restoreEditorPosition: true,
     tableWidthStable: true,
+    annoPalette: cloneAnnoPalette(DEFAULT_ANNO_PALETTE),
 };
 
 export const TOOLBAR_BUTTON_LABELS: Record<ToolbarButtonId, string> = {
@@ -142,6 +146,12 @@ export class FormatHotkeysSettingTab extends PluginSettingTab {
                     this.plugin.applyTableStable();
                 })
             );
+
+        mountAnnoPaletteEditor(containerEl.createDiv(), this.plugin.settings.annoPalette, async (next) => {
+            this.plugin.settings.annoPalette = next;
+            applyAnnoPalette(next);
+            await this.plugin.saveData(this.plugin.settings);
+        });
 
         new Setting(containerEl)
             .setName("默认代码语言")

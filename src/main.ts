@@ -31,6 +31,7 @@ import { EditorToolbarManager } from "./toolbar";
 import { TyporaConfigModal } from "./typora-config-modal";
 import { readViewState, applyViewState, statesEqual, EditorStateSnapshot } from "./editor-state";
 import { applyTableStableStyle } from "./table-stable";
+import { applyAnnoPalette, clearAnnoPalette, normalizeAnnoPalette } from "./anno-palette";
 import { applyTyporaStyleVars, clearTyporaStyleVars, mergeTyporaStyle } from "./typora-style";
 import { createAsmHighlightExtension, refreshAsmHighlight, registerAsmPrismLanguages } from "./asm-highlight";
 import { createCppHighlightExtension, registerCppPrismLanguages } from "./cpp-highlight";
@@ -41,6 +42,7 @@ import {
     createAnnotationExtension,
     destroyAnnotationTooltip,
     editAnnotationAtCursor,
+    bindAnnoPalette,
     installAnnotationHover,
     promptAnnotation,
     removeAnnotationAtCursor,
@@ -96,6 +98,8 @@ export default class FormatHotkeysPlugin extends Plugin {
 
     async onload() {
         await this.loadSettings();
+        bindAnnoPalette(() => this.settings.annoPalette);
+        applyAnnoPalette(this.settings.annoPalette);
 
         for (let level = 1; level <= 5; level++) {
             this.addCommand({
@@ -336,6 +340,7 @@ export default class FormatHotkeysPlugin extends Plugin {
 
     onunload(): void {
         destroyAnnotationTooltip();
+        clearAnnoPalette();
         this.writeDb();
         applyTableStableStyle(false);
 
@@ -628,6 +633,7 @@ export default class FormatHotkeysPlugin extends Plugin {
         if (!Array.isArray(this.settings.codeLanguages) || this.settings.codeLanguages.length === 0) {
             this.settings.codeLanguages = [...DEFAULT_SETTINGS.codeLanguages];
         }
+        this.settings.annoPalette = normalizeAnnoPalette(data?.annoPalette);
 
         // 兼容旧按钮 id；顿号已改 Alt+`，从工具栏移除
         if (Array.isArray(this.settings.toolbarButtonOrder)) {
@@ -671,6 +677,7 @@ export default class FormatHotkeysPlugin extends Plugin {
 
     async saveSettings() {
         await this.saveData(this.settings);
+        applyAnnoPalette(this.settings.annoPalette);
         this.toolbarManager.refresh();
     }
 

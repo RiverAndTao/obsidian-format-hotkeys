@@ -2,6 +2,13 @@ import { RangeSetBuilder, type Extension } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { Editor, MarkdownView, Menu, Modal, Notice, Plugin, type App } from "obsidian";
 import {
+    cloneAnnoPalette,
+    DEFAULT_ANNO_PALETTE,
+    defaultAnnoColorId,
+    sanitizeColorId,
+    type AnnoPaletteColor,
+} from "./anno-palette";
+import {
     endDocPos,
     limitsFromBlocks,
     previewSegments,
@@ -17,27 +24,30 @@ import {
  * <span class="fh-anno" data-color="yellow" data-fh-id="ab12cd" data-comment="解释">原文</span>
  * 有解释时，指针在高亮上停留一会儿才弹出；移开高亮后马上收起。
  * 点进弹出层后会保持打开，方便改文字和颜色。
- * 源码模式下高亮开头和结尾各有一条绿色竖线，可以分别拖动调整范围。
+ * 源码模式下高亮开头和结尾各有一条紫色竖线，可以分别拖动调整范围。
  */
 
-export const ANNO_COLORS = ["yellow", "green", "blue", "pink", "orange"] as const;
-export type AnnoColor = (typeof ANNO_COLORS)[number];
+/** 笔记里 data-color 的取值，对应设置里的颜色 id */
+export type AnnoColor = string;
 
-const COLOR_LABEL: Record<AnnoColor, string> = {
-    yellow: "黄色",
-    green: "绿色",
-    blue: "蓝色",
-    pink: "粉色",
-    orange: "橙色",
-};
+const COLOR_ID = /^[a-z][a-z0-9]{0,15}$/;
 
-const SWATCH: Record<AnnoColor, string> = {
-    yellow: "#ffe08a",
-    green: "#b7ebc6",
-    blue: "#b9d6ff",
-    pink: "#ffc6de",
-    orange: "#ffd0a8",
-};
+let readPalette: () => AnnoPaletteColor[] = () => cloneAnnoPalette(DEFAULT_ANNO_PALETTE);
+
+export function bindAnnoPalette(get: () => AnnoPaletteColor[]): void {
+    readPalette = () => {
+        const list = get();
+        return list.length ? list : cloneAnnoPalette(DEFAULT_ANNO_PALETTE);
+    };
+}
+
+function palette(): AnnoPaletteColor[] {
+    return readPalette();
+}
+
+function fallbackColor(): AnnoColor {
+    return defaultAnnoColorId(palette());
+}
 
 export interface AnnotationSpan {
     from: number;
@@ -93,8 +103,8 @@ function parseAnnoAttrs(attrs: string): { color: AnnoColor; comment: string; id:
     if (!className || !className.split(/\s+/).includes("fh-anno")) {
         return null;
     }
-    const colorRaw = readAttr(attrs, "data-color") ?? "yellow";
-    const color = (ANNO_COLORS as readonly string[]).includes(colorRaw) ? (colorRaw as AnnoColor) : "yellow";
+    const colorRaw = readAttr(attrs, "data-color") ?? "";
+    const color = COLOR_ID.test(colorRaw.trim().toLowerCase()) ? colorRaw.trim().toLowerCase() : fallbackColor();
     const comment = (readAttr(attrs, "data-comment") ?? readAttr(attrs, "title") ?? "").trim();
     const idRaw = readAttr(attrs, "data-fh-id") ?? "";
     const id = /^[a-z0-9]{4,16}$/.test(idRaw) ? idRaw : "";
@@ -164,7 +174,7 @@ export function findAnnotations(doc: string): AnnotationSpan[] {
 }
 
 export function buildAnnotation(inner: string, color: AnnoColor, comment: string, id: string): string {
-    const safeColor = (ANNO_COLORS as readonly string[]).includes(color) ? color : "yellow";
+    const safeColor = sanitizeColorId(color, fallbackColor());
     const safeId = /^[a-z0-9]{4,16}$/.test(id) ? id : "anno00";
     const parts = [`class="fh-anno"`, `data-color="${safeColor}"`, `data-fh-id="${safeId}"`];
     const text = comment.trim();
@@ -244,21 +254,27 @@ class AnnotationModal extends Modal {
         contentEl.addClass("fh-anno-modal");
         titleEl.setText(this.titleText);
         contentEl.createEl("p", {
-            text: "高亮会留在原文上。写下解释后，鼠标在高亮上停一会儿才会显示，移开就收起；点进去即可修改。源码模式里，高亮开头和结尾各有一条绿线，可以分别拖动调整范围。解释可以留空，只保留高亮。",
+            text: "高亮会留在原文上。写下解释后，鼠标在高亮上停一会儿才会显示，移开就收起；点进去即可修改。源码模式里，高亮开头和结尾各有一条紫线，可以分别拖动调整范围。解释可以留空，只保留高亮。",
             cls: "fh-anno-modal-desc",
         });
 
         const colors = contentEl.createDiv({ cls: "fh-anno-colors" });
         const paint = (): void => {
             colors.empty();
-            for (const color of ANNO_COLORS) {
+            for (const item of palette()) {
+                const active = item.id === this.color;
                 const btn = colors.createEl("button", {
-                    cls: `fh-anno-swatch${color === this.color ? " is-active" : ""}`,
-                    attr: { type: "button", "aria-label": COLOR_LABEL[color], title: COLOR_LABEL[color] },
+                    cls: `fh-anno-swatch${active ? " is-active" : ""}`,
+                    attr: {
+                        type: "button",
+                        "aria-label": item.name,
+                        "aria-pressed": active ? "true" : "false",
+                        title: item.name,
+                    },
                 });
-                btn.style.background = SWATCH[color];
+                btn.style.background = item.hex;
                 btn.addEventListener("click", () => {
-                    this.color = color;
+                    this.color = item.id;
                     paint();
                 });
             }
@@ -386,7 +402,7 @@ export async function promptAnnotation(app: App, editor: Editor): Promise<void> 
         new Notice("选区里已有 span 标签，请换一段文字");
         return;
     }
-    const result = await askAnnotation(app, { comment: "", color: "yellow" }, "高亮并批注", false);
+    const result = await askAnnotation(app, { comment: "", color: fallbackColor() }, "高亮并批注", false);
     if (!result || result.action !== "save") {
         return;
     }
@@ -1114,31 +1130,79 @@ function placeGripElement(el: HTMLElement, box: Box | null, edge: "start" | "end
         return;
     }
     const height = Math.max(16, raw);
-    const hit = 12;
+    const line = 3;
     const boundary = edge === "start" ? box.left : Math.max(box.left, box.right);
-    const x = edge === "start" ? boundary - hit : boundary;
+    // 整条线放在高亮外侧，贴着边缘，避免被正文盖住后只看见结尾
+    const x = edge === "start" ? boundary - line : boundary;
     const y = box.top - (height - raw) / 2;
     el.style.display = "block";
-    el.style.width = `${hit}px`;
+    el.style.width = `${line}px`;
     el.style.height = `${Math.round(height)}px`;
     el.style.left = `${Math.round(x)}px`;
     el.style.top = `${Math.round(y)}px`;
+}
+
+function markBelongs(cm: EditorView, node: HTMLElement, ann: AnnotationSpan): boolean {
+    try {
+        const before = cm.posAtDOM(node, -1);
+        const after = cm.posAtDOM(node, 1);
+        return before < ann.innerTo && after > ann.innerFrom;
+    } catch {
+        const id = node.getAttribute("data-fh-id") ?? "";
+        return Boolean(ann.id && id && id === ann.id);
+    }
+}
+
+/** 用高亮节点自己的矩形取开头和结尾，避免选区矩形把起点画到行首或和终点叠在一起 */
+function highlightEdges(cm: EditorView, ann: AnnotationSpan): { start: Box; end: Box } | null {
+    const rects: Box[] = [];
+    const nodes = cm.contentDOM.querySelectorAll<HTMLElement>(".fh-anno");
+    for (const node of Array.from(nodes)) {
+        if (!markBelongs(cm, node, ann)) {
+            continue;
+        }
+        for (const rect of Array.from(node.getClientRects())) {
+            if (rect.width < 0.5 || rect.height < 0.5) {
+                continue;
+            }
+            rects.push({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom });
+        }
+    }
+    if (!rects.length) {
+        return null;
+    }
+    rects.sort((a, b) => a.top - b.top || a.left - b.left);
+    const first = rects[0];
+    const last = rects[rects.length - 1];
+    const sameLine = Math.abs((first.top + first.bottom) / 2 - (last.top + last.bottom) / 2) < 4;
+    if (sameLine && last.right - first.left < 2) {
+        return null;
+    }
+    return {
+        start: { left: first.left, right: first.left, top: first.top, bottom: first.bottom },
+        end: { left: last.right, right: last.right, top: last.top, bottom: last.bottom },
+    };
+}
+
+function caretEdge(view: EditorView, pos: number, edge: "start" | "end"): Box | null {
+    const caret = caretBox(view, pos, edge === "start" ? 1 : -1);
+    if (!caret) {
+        return null;
+    }
+    const x = edge === "start" ? caret.left : Math.max(caret.left, caret.right);
+    return { left: x, right: x, top: caret.top, bottom: caret.bottom };
 }
 
 function placeGrips(): void {
     if (!session || session.grips.length < 2 || !session.cm || session.resize) {
         return;
     }
+    const cm = session.cm;
     const ann = session.ann;
-    const boxes = boxesBetween(session.cm, ann.innerFrom, ann.innerTo);
-    if (boxes.length) {
-        placeGripElement(session.grips[0], boxes[0], "start");
-        placeGripElement(session.grips[1], boxes[boxes.length - 1], "end");
-        return;
-    }
+    const visual = highlightEdges(cm, ann);
     const endPos = ann.innerTo > ann.innerFrom ? ann.innerTo : ann.innerFrom;
-    placeGripElement(session.grips[0], caretBox(session.cm, ann.innerFrom, 1), "start");
-    placeGripElement(session.grips[1], caretBox(session.cm, endPos, -1), "end");
+    placeGripElement(session.grips[0], visual?.start ?? caretEdge(cm, ann.innerFrom, "start"), "start");
+    placeGripElement(session.grips[1], visual?.end ?? caretEdge(cm, endPos, "end"), "end");
 }
 
 function placeAll(): void {
@@ -1167,22 +1231,28 @@ function fitTextarea(input: HTMLTextAreaElement): void {
 
 function paintSwatches(colors: HTMLElement, s: AnnoSession): void {
     colors.empty();
-    for (const color of ANNO_COLORS) {
+    for (const item of palette()) {
+        const active = item.id === s.color;
         const btn = colors.createEl("button", {
-            cls: `fh-anno-swatch${color === s.color ? " is-active" : ""}`,
-            attr: { type: "button", "aria-label": COLOR_LABEL[color], title: COLOR_LABEL[color] },
+            cls: `fh-anno-swatch${active ? " is-active" : ""}`,
+            attr: {
+                type: "button",
+                "aria-label": item.name,
+                "aria-pressed": active ? "true" : "false",
+                title: item.name,
+            },
         });
-        btn.style.background = SWATCH[color];
+        btn.style.background = item.hex;
         btn.addEventListener("click", () => {
             if (!session) {
                 return;
             }
-            session.color = color;
+            session.color = item.id;
             session.engaged = true;
             const text = session.textarea?.value ?? session.ann.comment;
-            session.dirty = color !== session.ann.color || text.trim() !== session.ann.comment;
+            session.dirty = item.id !== session.ann.color || text.trim() !== session.ann.comment;
             if (session.tip) {
-                session.tip.dataset.color = color;
+                session.tip.dataset.color = item.id;
             }
             paintSwatches(colors, session);
         });
@@ -1402,8 +1472,8 @@ function paintDrag(): void {
         paintBoxes(cm, from, to, "cut", drag.ann.color);
     }
     if (session.grips.length >= 2) {
-        placeGripElement(session.grips[0], caretBox(cm, startDocPos(drag.ann, drag.ns), 1), "start");
-        placeGripElement(session.grips[1], caretBox(cm, endDocPos(drag.ann, drag.ne), -1), "end");
+        placeGripElement(session.grips[0], caretEdge(cm, startDocPos(drag.ann, drag.ns), "start"), "start");
+        placeGripElement(session.grips[1], caretEdge(cm, endDocPos(drag.ann, drag.ne), "end"), "end");
     }
 }
 
