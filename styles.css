@@ -1631,12 +1631,12 @@ body.typora-mode-active .markdown-source-view.mod-cm6
     background: transparent;
 }
 
+/* 高亮开头、结尾各一条绿线。命中区朝外侧伸出，短高亮也能分开拖 */
 .fh-anno-grip {
     position: fixed;
     z-index: 10002;
     display: none;
-    align-items: center;
-    justify-content: center;
+    box-sizing: border-box;
     cursor: ew-resize;
     touch-action: none;
     pointer-events: auto;
@@ -1644,16 +1644,27 @@ body.typora-mode-active .markdown-source-view.mod-cm6
 
 .fh-anno-grip::before {
     content: "";
-    width: 3px;
-    height: calc(100% - 4px);
-    border-radius: 999px;
-    background: var(--interactive-accent, #4c8dff);
-    box-shadow: 0 0 0 1px var(--background-primary);
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    border-radius: 1px;
+    background: #3cba6f;
+    box-shadow: 0 0 0 1px var(--background-primary, #fff);
+}
+
+.fh-anno-grip[data-edge="start"]::before {
+    right: -1px;
+}
+
+.fh-anno-grip[data-edge="end"]::before {
+    left: -1px;
 }
 
 .fh-anno-grip:hover::before,
 .fh-anno-grip.is-dragging::before {
-    width: 4px;
+    width: 3px;
+    background: #2f9e5f;
 }
 
 .fh-anno-preview {

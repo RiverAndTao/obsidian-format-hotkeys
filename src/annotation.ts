@@ -15,8 +15,9 @@ import {
  * 选区高亮 + 悬停批注。
  * 写法放在笔记正文里，阅读视图和源码模式都能看到：
  * <span class="fh-anno" data-color="yellow" data-fh-id="ab12cd" data-comment="解释">原文</span>
- * 有解释时悬停弹出。点进弹出层后会保持打开，方便改文字和颜色。
- * 源码模式下高亮两端可拖动，用来调整高亮范围。
+ * 有解释时，指针在高亮上停留一会儿才弹出；移开高亮后马上收起。
+ * 点进弹出层后会保持打开，方便改文字和颜色。
+ * 源码模式下高亮开头和结尾各有一条绿色竖线，可以分别拖动调整范围。
  */
 
 export const ANNO_COLORS = ["yellow", "green", "blue", "pink", "orange"] as const;
@@ -243,7 +244,7 @@ class AnnotationModal extends Modal {
         contentEl.addClass("fh-anno-modal");
         titleEl.setText(this.titleText);
         contentEl.createEl("p", {
-            text: "高亮会留在原文上。写下解释后，鼠标移到高亮上就会显示，点进去即可修改。源码模式里可以拖高亮两端调整范围。解释可以留空，只保留高亮。",
+            text: "高亮会留在原文上。写下解释后，鼠标在高亮上停一会儿才会显示，移开就收起；点进去即可修改。源码模式里，高亮开头和结尾各有一条绿线，可以分别拖动调整范围。解释可以留空，只保留高亮。",
             cls: "fh-anno-modal-desc",
         });
 
@@ -611,6 +612,11 @@ interface AnnoSession {
     resize: ResizeDrag | null;
 }
 
+/** 停在高亮上再弹出，避免指针扫过时闪一下 */
+const SHOW_DELAY_MS = 500;
+/** 离开高亮后尽快收起；短延迟只为了能移进弹出层 */
+const HIDE_DELAY_MS = 80;
+
 let hoverApp: App | null = null;
 let session: AnnoSession | null = null;
 let hoverToken = 0;
@@ -618,6 +624,9 @@ let lastX = 0;
 let lastY = 0;
 let placeRaf = 0;
 let saving = false;
+let showTimer: number | null = null;
+let showHost: HTMLElement | null = null;
+let showPointerY = 0;
 
 function clampNum(n: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, n));
@@ -633,7 +642,16 @@ function clearPreviews(): void {
     session.previews = [];
 }
 
+function cancelShow(): void {
+    if (showTimer !== null) {
+        window.clearTimeout(showTimer);
+        showTimer = null;
+    }
+    showHost = null;
+}
+
 function closeSession(): void {
+    cancelShow();
     if (placeRaf) {
         window.cancelAnimationFrame(placeRaf);
         placeRaf = 0;
@@ -694,7 +712,7 @@ function scheduleHide(): void {
             return;
         }
         closeSession();
-    }, 1000) as unknown as number;
+    }, HIDE_DELAY_MS) as unknown as number;
 }
 
 function annoHostOf(node: Node): HTMLElement | null {
@@ -704,6 +722,79 @@ function annoHostOf(node: Node): HTMLElement | null {
     }
     const host = el.closest(".fh-anno");
     return host instanceof HTMLElement ? host : null;
+}
+
+function hostsMatch(a: HTMLElement, b: HTMLElement): boolean {
+    if (a === b) {
+        return true;
+    }
+    const ida = a.getAttribute("data-fh-id") ?? "";
+    const idb = b.getAttribute("data-fh-id") ?? "";
+    if (ida || idb) {
+        return ida !== "" && ida === idb;
+    }
+    const cm = EditorView.findFromDOM(a);
+    if (!cm || EditorView.findFromDOM(b) !== cm) {
+        return false;
+    }
+    try {
+        const pa = cm.posAtDOM(a, 1);
+        const pb = cm.posAtDOM(b, 1);
+        for (const ann of findAnnotations(cm.state.doc.toString())) {
+            const inside = (pos: number): boolean => pos >= ann.innerFrom && pos < ann.innerTo;
+            if (inside(pa) && inside(pb)) {
+                return true;
+            }
+        }
+    } catch {
+        return false;
+    }
+    return false;
+}
+
+function pointerOnHost(host: HTMLElement): boolean {
+    const under = document.elementFromPoint(lastX, lastY);
+    if (!(under instanceof Node)) {
+        return false;
+    }
+    const current = annoHostOf(under);
+    return !!current && hostsMatch(current, host);
+}
+
+function pointerStillOnHost(host: HTMLElement, related: EventTarget | null, x: number, y: number): boolean {
+    if (related instanceof Node) {
+        const next = annoHostOf(related);
+        if (next && hostsMatch(next, host)) {
+            return true;
+        }
+        return related instanceof Element && (host === related || host.contains(related));
+    }
+    const under = document.elementFromPoint(x, y);
+    if (!(under instanceof Node)) {
+        return false;
+    }
+    const next = annoHostOf(under);
+    return !!next && hostsMatch(next, host);
+}
+
+function scheduleShow(host: HTMLElement, pointerY: number): void {
+    showPointerY = pointerY;
+    if (showHost && hostsMatch(showHost, host)) {
+        showHost = host;
+        return;
+    }
+    cancelShow();
+    showHost = host;
+    showTimer = window.setTimeout(() => {
+        showTimer = null;
+        const pending = showHost;
+        const y = showPointerY;
+        showHost = null;
+        if (!pending || !pending.isConnected || !pointerOnHost(pending)) {
+            return;
+        }
+        openFromHost(pending, y);
+    }, SHOW_DELAY_MS) as unknown as number;
 }
 
 function quickSame(host: HTMLElement): boolean {
@@ -1017,14 +1108,19 @@ function placeGripElement(el: HTMLElement, box: Box | null, edge: "start" | "end
         el.style.display = "none";
         return;
     }
-    const width = 18;
-    const overlap = 6;
-    const height = Math.max(16, Math.min(32, box.bottom - box.top));
-    const x = edge === "start" ? box.left - (width - overlap) : Math.max(box.left, box.right) - overlap;
-    const y = (box.top + box.bottom) / 2 - height / 2;
-    el.style.display = "flex";
-    el.style.width = `${width}px`;
-    el.style.height = `${height}px`;
+    const raw = box.bottom - box.top;
+    if (raw < 1) {
+        el.style.display = "none";
+        return;
+    }
+    const height = Math.max(16, raw);
+    const hit = 12;
+    const boundary = edge === "start" ? box.left : Math.max(box.left, box.right);
+    const x = edge === "start" ? boundary - hit : boundary;
+    const y = box.top - (height - raw) / 2;
+    el.style.display = "block";
+    el.style.width = `${hit}px`;
+    el.style.height = `${Math.round(height)}px`;
     el.style.left = `${Math.round(x)}px`;
     el.style.top = `${Math.round(y)}px`;
 }
@@ -1034,8 +1130,14 @@ function placeGrips(): void {
         return;
     }
     const ann = session.ann;
-    placeGripElement(session.grips[0], caretBox(session.cm, ann.innerFrom, 1), "start");
+    const boxes = boxesBetween(session.cm, ann.innerFrom, ann.innerTo);
+    if (boxes.length) {
+        placeGripElement(session.grips[0], boxes[0], "start");
+        placeGripElement(session.grips[1], boxes[boxes.length - 1], "end");
+        return;
+    }
     const endPos = ann.innerTo > ann.innerFrom ? ann.innerTo : ann.innerFrom;
+    placeGripElement(session.grips[0], caretBox(session.cm, ann.innerFrom, 1), "start");
     placeGripElement(session.grips[1], caretBox(session.cm, endPos, -1), "end");
 }
 
@@ -1146,11 +1248,11 @@ function buildTip(s: AnnoSession): void {
 function buildGrips(s: AnnoSession): void {
     const start = document.body.createDiv({
         cls: "fh-anno-grip",
-        attr: { "data-edge": "start", "aria-label": "拖动调整高亮起点", title: "拖动调整高亮起点" },
+        attr: { "data-edge": "start", "aria-label": "拖动调整高亮起点" },
     });
     const end = document.body.createDiv({
         cls: "fh-anno-grip",
-        attr: { "data-edge": "end", "aria-label": "拖动调整高亮终点", title: "拖动调整高亮终点" },
+        attr: { "data-edge": "end", "aria-label": "拖动调整高亮终点" },
     });
     start.addEventListener("pointerdown", (ev) => beginResize(ev, "start"));
     end.addEventListener("pointerdown", (ev) => beginResize(ev, "end"));
@@ -1522,21 +1624,36 @@ function onMouseOver(evt: MouseEvent): void {
     commentFromHost(host);
     if (session && quickSame(host)) {
         session.host = host;
+        cancelShow();
         cancelHide();
         return;
     }
     if (session?.engaged || session?.dirty || session?.resize) {
         return;
     }
-    openFromHost(host, evt.clientY);
+    if (session) {
+        closeSession();
+    }
+    scheduleShow(host, evt.clientY);
 }
 
 function onMouseOut(evt: MouseEvent): void {
+    lastX = evt.clientX;
+    lastY = evt.clientY;
+    const target = evt.target;
+    if (!(target instanceof Node)) {
+        return;
+    }
+    if (showHost) {
+        const from = annoHostOf(target);
+        if (from && hostsMatch(from, showHost) && !pointerStillOnHost(showHost, evt.relatedTarget, evt.clientX, evt.clientY)) {
+            cancelShow();
+        }
+    }
     if (!session || session.resize) {
         return;
     }
-    const target = evt.target;
-    if (!(target instanceof Node) || !isSessionNode(target)) {
+    if (!isSessionNode(target)) {
         return;
     }
     const related = evt.relatedTarget;
@@ -1582,7 +1699,7 @@ function onPointerDown(ev: PointerEvent): void {
 }
 
 function onKeyDown(ev: KeyboardEvent): void {
-    if (ev.key !== "Escape" || !session) {
+    if (ev.key !== "Escape" || (!session && !showHost)) {
         return;
     }
     ev.preventDefault();
