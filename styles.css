@@ -1538,9 +1538,7 @@ body.typora-mode-active .markdown-source-view.mod-cm6
     cursor: help;
 }
 
-.markdown-source-view.mod-cm6 .fh-anno-tag {
-    display: none !important;
-}
+/* 批注标签由替换装饰拿掉，不要 display:none，否则拖动手柄时坐标会跳到文首 */
 
 .fh-anno-tip {
     position: fixed;
@@ -1631,7 +1629,7 @@ body.typora-mode-active .markdown-source-view.mod-cm6
     background: transparent;
 }
 
-/* 紫线本身就是把手，贴在高亮左缘和右缘。命中区只向外侧伸，避免盖住另一头 */
+/* 紫线本身就是把手，贴在高亮左缘和右缘。命中区两侧都留一点，向里收和向外扩都能抓住 */
 .fh-anno-grip {
     position: fixed;
     z-index: 10003;
@@ -1649,17 +1647,17 @@ body.typora-mode-active .markdown-source-view.mod-cm6
 .fh-anno-grip::before {
     content: "";
     position: absolute;
-    top: -3px;
-    bottom: -3px;
-    width: 14px;
+    top: -4px;
+    bottom: -4px;
+    width: 16px;
 }
 
 .fh-anno-grip[data-edge="start"]::before {
-    right: 0;
+    right: -4px;
 }
 
 .fh-anno-grip[data-edge="end"]::before {
-    left: 0;
+    left: -4px;
 }
 
 .fh-anno-grip:hover,
@@ -1697,6 +1695,10 @@ body.typora-mode-active .markdown-source-view.mod-cm6
 
 .fh-anno-preview.is-cut {
     background: var(--background-primary);
+}
+
+body.fh-anno-resizing .fh-anno-grip {
+    pointer-events: none;
 }
 
 body.fh-anno-resizing,

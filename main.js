@@ -2320,7 +2320,11 @@ function palette() {
 function fallbackColor() {
     return defaultAnnoColorId(palette());
 }
-const hideTag = view.Decoration.mark({ class: "fh-anno-tag" });
+/**
+ * 标签用替换装饰藏起来，不要用 display:none。
+ * display:none 没有盒模型，posAtCoords 会落到文档开头，向里收也读不到正文位置。
+ */
+const hideTag = view.Decoration.replace({ inclusive: false });
 function encodeAttr(text) {
     return text
         .replace(/&/g, "&amp;")
@@ -2802,6 +2806,7 @@ let hoverToken = 0;
 let lastX = 0;
 let lastY = 0;
 let placeRaf = 0;
+let dragFrame = 0;
 let saving = false;
 let showTimer = null;
 let showHost = null;
@@ -2825,9 +2830,16 @@ function cancelShow() {
     }
     showHost = null;
 }
+function cancelDragFrame() {
+    if (dragFrame) {
+        window.cancelAnimationFrame(dragFrame);
+        dragFrame = 0;
+    }
+}
 function closeSession() {
     var _a, _b;
     cancelShow();
+    cancelDragFrame();
     if (placeRaf) {
         window.cancelAnimationFrame(placeRaf);
         placeRaf = 0;
@@ -3692,6 +3704,10 @@ function beginResize(ev, edge) {
         maxNe: Math.max(limits.maxNe, originNe),
     };
     session.engaged = true;
+    for (const grip of session.grips) {
+        // 把手是 fixed 层，挡着指针时 caret 命中的是把手而不是正文
+        grip.style.pointerEvents = "none";
+    }
     const grip = ev.currentTarget;
     if (grip instanceof HTMLElement) {
         grip.classList.add("is-dragging");
@@ -3739,6 +3755,7 @@ function endResize(commit) {
     document.body.classList.remove("fh-anno-resizing");
     for (const grip of session.grips) {
         grip.classList.remove("is-dragging");
+        grip.style.pointerEvents = "";
     }
     const showTip = () => {
         if (session === null || session === void 0 ? void 0 : session.tip) {
@@ -3962,45 +3979,265 @@ function onKeyDown(ev) {
     ev.stopPropagation();
     closeSession();
 }
-function onPointerMove(ev) {
-    lastX = ev.clientX;
-    lastY = ev.clientY;
+/** 这一行上、和指针同一视觉行的左缘。对不上就当这个位置没有盒子。 */
+function rowLeft(view, pos, y) {
+    var _a;
+    const rect = (_a = view.coordsAtPos(pos, 1)) !== null && _a !== void 0 ? _a : view.coordsAtPos(pos, -1);
+    if (!rect || rect.bottom - rect.top < 1) {
+        return null;
+    }
+    if (y < rect.top - 4 || y > rect.bottom + 4) {
+        return null;
+    }
+    return rect.left;
+}
+function posNearPointer(view, pos, y) {
+    if (typeof pos !== "number" || !Number.isFinite(pos)) {
+        return false;
+    }
+    const doc = view.state.doc;
+    const clamped = Math.max(0, Math.min(doc.length, pos));
+    const line = doc.lineAt(clamped);
+    const covers = (at) => {
+        var _a;
+        if (at < line.from || at > line.to) {
+            return false;
+        }
+        const rect = (_a = view.coordsAtPos(at, 1)) !== null && _a !== void 0 ? _a : view.coordsAtPos(at, -1);
+        if (!rect || rect.bottom - rect.top < 1) {
+            return false;
+        }
+        return y >= rect.top - 4 && y <= rect.bottom + 4;
+    };
+    if (covers(clamped)) {
+        return true;
+    }
+    // 落在被替换掉的标签里时，自己没有盒子，向两侧找可见文字
+    const span = line.to - line.from;
+    for (let step = 1; step <= span; step *= 2) {
+        if (covers(clamped - step) || covers(clamped + step)) {
+            return true;
+        }
+    }
+    return covers(line.from) || covers(line.to);
+}
+function posFromCaret(view, x, y) {
+    var _a, _b, _c, _d;
+    const root = view.dom.ownerDocument;
+    const api = root;
+    let node = null;
+    let offset = 0;
+    const caret = (_b = (_a = api.caretPositionFromPoint) === null || _a === void 0 ? void 0 : _a.call(api, x, y)) !== null && _b !== void 0 ? _b : null;
+    if (caret) {
+        node = caret.offsetNode;
+        offset = caret.offset;
+    }
+    else {
+        const range = (_d = (_c = api.caretRangeFromPoint) === null || _c === void 0 ? void 0 : _c.call(api, x, y)) !== null && _d !== void 0 ? _d : null;
+        if (!range) {
+            return null;
+        }
+        node = range.startContainer;
+        offset = range.startOffset;
+    }
+    if (!node || !view.dom.contains(node)) {
+        return null;
+    }
+    try {
+        return view.posAtDOM(node, offset);
+    }
+    catch (_e) {
+        return null;
+    }
+}
+function preferBoundary(current, pos, left, x) {
+    const dx = Math.abs(left - x);
+    if (!current || dx < current.dx - 0.25) {
+        return { pos, left, dx };
+    }
+    if (Math.abs(dx - current.dx) > 0.25) {
+        return current;
+    }
+    // 标签被收成一条零宽边。指针在右边时取更靠后的位置，向里收才不会停在原处。
+    if (x >= left && pos > current.pos) {
+        return { pos, left, dx };
+    }
+    if (x < left && pos < current.pos) {
+        return { pos, left, dx };
+    }
+    return current;
+}
+function nearestBoundary(view, seed, x, y) {
+    var _a;
+    const doc = view.state.doc;
+    const clamped = Math.max(0, Math.min(seed, doc.length));
+    const line = doc.lineAt(clamped);
+    const cache = new Map();
+    const leftOf = (pos) => {
+        if (pos < line.from || pos > line.to) {
+            return null;
+        }
+        const cached = cache.get(pos);
+        if (cached !== undefined) {
+            return cached;
+        }
+        const left = rowLeft(view, pos, y);
+        cache.set(pos, left);
+        return left;
+    };
+    const scan = (from, to, into) => {
+        let best = into;
+        const start = Math.max(line.from, from);
+        const end = Math.min(line.to, to);
+        for (let pos = start; pos <= end; pos++) {
+            const left = leftOf(pos);
+            if (left == null) {
+                continue;
+            }
+            best = preferBoundary(best, pos, left, x);
+        }
+        return best;
+    };
+    const around = 4;
+    const start = Math.max(line.from, clamped - around);
+    const end = Math.min(line.to, clamped + around);
+    let best = scan(start, end, null);
+    if (best && best.pos > start && best.pos < end) {
+        return best.pos;
+    }
+    let anchor = (_a = best === null || best === void 0 ? void 0 : best.pos) !== null && _a !== void 0 ? _a : clamped;
+    for (let n = 0, step = 8; n < 80; n++, step += 8) {
+        let seen = false;
+        for (const pos of [clamped + step, clamped - step]) {
+            const left = leftOf(pos);
+            if (left == null) {
+                continue;
+            }
+            seen = true;
+            best = preferBoundary(best, pos, left, x);
+            anchor = best.pos;
+        }
+        if (!seen && n > 6) {
+            break;
+        }
+        if (best && best.dx <= 1 && n > 0) {
+            break;
+        }
+    }
+    best = scan(anchor - 12, anchor + 12, best);
+    return best ? best.pos : clamped;
+}
+/**
+ * 指针下的文档位置。
+ * 先看可见文字（向里收要读到高亮内部），再用坐标兜底。
+ * 竖直方向对不上的结果丢掉，避免 posAtCoords 在文档上方时返回 0，把手跳到文首。
+ */
+function docPosAtPointer(view, x, y) {
+    const score = (seed) => {
+        if (!posNearPointer(view, seed, y)) {
+            return null;
+        }
+        const pos = nearestBoundary(view, seed, x, y);
+        const left = rowLeft(view, pos, y);
+        if (left == null) {
+            return null;
+        }
+        return { pos, left, dx: Math.abs(left - x) };
+    };
+    let best = null;
+    const caret = posFromCaret(view, x, y);
+    if (caret != null) {
+        best = score(caret);
+    }
+    if (!best || best.dx > 24) {
+        const rough = view.posAtCoords({ x, y }, false);
+        if (rough != null) {
+            const alt = score(rough);
+            if (alt && (!best || alt.dx < best.dx)) {
+                best = alt;
+            }
+        }
+    }
+    return best ? best.pos : null;
+}
+function slideActiveGrip(view, edge, boundaryPos) {
+    var _a;
+    if (!session || session.grips.length < 2) {
+        return;
+    }
+    const el = session.grips[edge === "start" ? 0 : 1];
+    if (el.style.display === "none") {
+        return;
+    }
+    const here = view.coordsAtPos(boundaryPos, edge === "start" ? 1 : -1);
+    if (!here) {
+        return;
+    }
+    const boundary = edge === "start" ? here.left : Math.max(here.left, here.right);
+    const neighborAt = boundaryPos + (edge === "start" ? 1 : -1);
+    const neighbor = neighborAt >= 0 && neighborAt <= view.state.doc.length
+        ? (_a = view.coordsAtPos(neighborAt, 1)) !== null && _a !== void 0 ? _a : view.coordsAtPos(neighborAt, -1)
+        : null;
+    const neighborX = neighbor ? (edge === "start" ? neighbor.left : Math.max(neighbor.left, neighbor.right)) : boundary;
+    const limit = Math.max(8, Math.min(28, Math.abs(neighborX - boundary) + 2));
+    const tracked = Math.max(boundary - limit, Math.min(boundary + limit, lastX));
+    const width = 3;
+    el.style.left = `${Math.round(edge === "start" ? tracked - width : tracked)}px`;
+}
+function applyDragPointer() {
     const drag = session === null || session === void 0 ? void 0 : session.resize;
     const cm = session === null || session === void 0 ? void 0 : session.cm;
     if (!drag || !cm || !session) {
         return;
     }
-    const pos = cm.posAtCoords({ x: ev.clientX, y: ev.clientY });
+    const pos = docPosAtPointer(cm, lastX, lastY);
     if (pos == null) {
         return;
     }
     const next = snapUnwrappedIndex(drag.doc, drag.ann, unwrapPos(drag.ann, pos), drag.edge);
     if (drag.edge === "start") {
         const ns = clampNum(next, drag.minNs, drag.ne - 1);
-        if (ns === drag.ns) {
-            return;
+        if (ns !== drag.ns) {
+            drag.ns = ns;
+            paintDrag();
         }
-        drag.ns = ns;
+        slideActiveGrip(cm, "start", startDocPos(drag.ann, drag.ns));
+        return;
     }
-    else {
-        const ne = clampNum(next, drag.ns + 1, drag.maxNe);
-        if (ne === drag.ne) {
-            return;
-        }
+    const ne = clampNum(next, drag.ns + 1, drag.maxNe);
+    if (ne !== drag.ne) {
         drag.ne = ne;
+        paintDrag();
     }
-    paintDrag();
+    slideActiveGrip(cm, "end", endDocPos(drag.ann, drag.ne));
+}
+function onPointerMove(ev) {
+    lastX = ev.clientX;
+    lastY = ev.clientY;
+    if (!(session === null || session === void 0 ? void 0 : session.resize) || !session.cm) {
+        return;
+    }
+    if (dragFrame) {
+        return;
+    }
+    dragFrame = window.requestAnimationFrame(() => {
+        dragFrame = 0;
+        applyDragPointer();
+    });
 }
 function onPointerUp() {
     if (!(session === null || session === void 0 ? void 0 : session.resize)) {
         return;
     }
+    cancelDragFrame();
+    applyDragPointer();
     endResize(true);
 }
 function onPointerCancel() {
     if (!(session === null || session === void 0 ? void 0 : session.resize)) {
         return;
     }
+    cancelDragFrame();
     endResize(false);
 }
 function onScroll(ev) {
@@ -4037,9 +4274,14 @@ noteAnnotationDocChanged = (view) => {
         return;
     }
     if (session.resize) {
+        cancelDragFrame();
         session.resize = null;
         clearPreviews();
         document.body.classList.remove("fh-anno-resizing");
+        for (const grip of session.grips) {
+            grip.classList.remove("is-dragging");
+            grip.style.pointerEvents = "";
+        }
     }
     if (!fresh) {
         closeSession();
