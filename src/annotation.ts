@@ -9,12 +9,10 @@ import {
     type AnnoPaletteColor,
 } from "./anno-palette";
 import {
-    endDocPos,
     limitsFromBlocks,
     previewSegments,
     resizeReplacement,
     snapUnwrappedIndex,
-    startDocPos,
     unwrapPos,
 } from "./annotation-geom";
 
@@ -592,6 +590,13 @@ interface HostHit {
     doc: string;
 }
 
+interface CaretStop {
+    pos: number;
+    x: number;
+    top: number;
+    bottom: number;
+}
+
 interface ResizeDrag {
     ann: AnnotationSpan;
     doc: string;
@@ -602,6 +607,9 @@ interface ResizeDrag {
     originNe: number;
     minNs: number;
     maxNe: number;
+    /** 当前视觉行上，每个可见字的光标位置。拖动时只在这里面挑 */
+    stops: CaretStop[];
+    stopsKey: string;
 }
 
 interface Box {
@@ -644,6 +652,7 @@ let lastX = 0;
 let lastY = 0;
 let placeRaf = 0;
 let dragFrame = 0;
+let dragMoved = false;
 let saving = false;
 let showTimer: number | null = null;
 let showHost: HTMLElement | null = null;
@@ -681,6 +690,7 @@ function cancelDragFrame(): void {
 function closeSession(): void {
     cancelShow();
     cancelDragFrame();
+    dragMoved = false;
     if (placeRaf) {
         window.cancelAnimationFrame(placeRaf);
         placeRaf = 0;
@@ -1531,10 +1541,6 @@ function paintDrag(): void {
     for (const [from, to] of parts.cut) {
         paintBoxes(cm, from, to, "cut", drag.ann.color);
     }
-    if (session.grips.length >= 2) {
-        placeGripElement(session.grips[0], caretEdge(cm, startDocPos(drag.ann, drag.ns), "start"), "start");
-        placeGripElement(session.grips[1], caretEdge(cm, endDocPos(drag.ann, drag.ne), "end"), "end");
-    }
 }
 
 function beginResize(ev: PointerEvent, edge: "start" | "end"): void {
@@ -1565,7 +1571,10 @@ function beginResize(ev: PointerEvent, edge: "start" | "end"): void {
         originNe,
         minNs: Math.min(limits.minNs, originNs),
         maxNe: Math.max(limits.maxNe, originNe),
+        stops: [],
+        stopsKey: "",
     };
+    dragMoved = false;
     session.engaged = true;
     for (const grip of session.grips) {
         // 把手是 fixed 层，挡着指针时 caret 命中的是把手而不是正文
@@ -1608,6 +1617,7 @@ function reattachHost(): void {
 }
 
 function endResize(commit: boolean): void {
+    // 第二步：松开后才按光标记下的范围改高亮文本
     const drag = session?.resize;
     if (!drag || !session) {
         return;
@@ -1843,46 +1853,47 @@ function onKeyDown(ev: KeyboardEvent): void {
     closeSession();
 }
 
-/** 这一行上、和指针同一视觉行的左缘。对不上就当这个位置没有盒子。 */
-function rowLeft(view: EditorView, pos: number, y: number): number | null {
-    const rect = view.coordsAtPos(pos, 1) ?? view.coordsAtPos(pos, -1);
-    if (!rect || rect.bottom - rect.top < 1) {
+/** 量一个可见字的屏幕盒子。标签被替换掉以后没有字形，不当成光标位。 */
+function glyphBox(view: EditorView, pos: number): { left: number; right: number; top: number; bottom: number } | null {
+    const doc = view.state.doc;
+    if (pos < 0 || pos >= doc.length) {
         return null;
     }
-    if (y < rect.top - 4 || y > rect.bottom + 4) {
-        return null;
+    const fromCaret = (): { left: number; right: number; top: number; bottom: number } | null => {
+        const caret = view.coordsAtPos(pos, 1);
+        if (!caret || caret.bottom - caret.top < 1 || caret.right - caret.left < 2) {
+            return null;
+        }
+        return { left: caret.left, right: caret.right, top: caret.top, bottom: caret.bottom };
+    };
+    let start: { node: Node; offset: number };
+    let end: { node: Node; offset: number };
+    try {
+        start = view.domAtPos(pos, 1);
+        end = view.domAtPos(pos + 1, -1);
+    } catch {
+        return fromCaret();
     }
-    return rect.left;
+    if (start.node !== end.node || start.offset !== end.offset) {
+        const range = document.createRange();
+        try {
+            range.setStart(start.node, start.offset);
+            range.setEnd(end.node, end.offset);
+            for (const rect of Array.from(range.getClientRects())) {
+                if (rect.width < 0.4 || rect.height < 1) {
+                    continue;
+                }
+                return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+            }
+        } catch {
+            // 落到光标坐标
+        }
+    }
+    return fromCaret();
 }
 
-function posNearPointer(view: EditorView, pos: number, y: number): boolean {
-    if (typeof pos !== "number" || !Number.isFinite(pos)) {
-        return false;
-    }
-    const doc = view.state.doc;
-    const clamped = Math.max(0, Math.min(doc.length, pos));
-    const line = doc.lineAt(clamped);
-    const covers = (at: number): boolean => {
-        if (at < line.from || at > line.to) {
-            return false;
-        }
-        const rect = view.coordsAtPos(at, 1) ?? view.coordsAtPos(at, -1);
-        if (!rect || rect.bottom - rect.top < 1) {
-            return false;
-        }
-        return y >= rect.top - 4 && y <= rect.bottom + 4;
-    };
-    if (covers(clamped)) {
-        return true;
-    }
-    // 落在被替换掉的标签里时，自己没有盒子，向两侧找可见文字
-    const span = line.to - line.from;
-    for (let step = 1; step <= span; step *= 2) {
-        if (covers(clamped - step) || covers(clamped + step)) {
-            return true;
-        }
-    }
-    return covers(line.from) || covers(line.to);
+function glyphOnRow(box: { top: number; bottom: number }, y: number): boolean {
+    return y >= box.top - 6 && y <= box.bottom + 6;
 }
 
 function posFromCaret(view: EditorView, x: number, y: number): number | null {
@@ -1915,177 +1926,224 @@ function posFromCaret(view: EditorView, x: number, y: number): number | null {
     }
 }
 
-interface BoundaryHit {
-    pos: number;
-    left: number;
-    dx: number;
-}
-
-function preferBoundary(current: BoundaryHit | null, pos: number, left: number, x: number): BoundaryHit {
-    const dx = Math.abs(left - x);
-    if (!current || dx < current.dx - 0.25) {
-        return { pos, left, dx };
-    }
-    if (Math.abs(dx - current.dx) > 0.25) {
-        return current;
-    }
-    // 标签被收成一条零宽边。指针在右边时取更靠后的位置，向里收才不会停在原处。
-    if (x >= left && pos > current.pos) {
-        return { pos, left, dx };
-    }
-    if (x < left && pos < current.pos) {
-        return { pos, left, dx };
-    }
-    return current;
-}
-
-function nearestBoundary(view: EditorView, seed: number, x: number, y: number): number {
-    const doc = view.state.doc;
-    const clamped = Math.max(0, Math.min(seed, doc.length));
-    const line = doc.lineAt(clamped);
-    const cache = new Map<number, number | null>();
-    const leftOf = (pos: number): number | null => {
-        if (pos < line.from || pos > line.to) {
+/** 指针所在的那一行。标签没有字形时向两侧找可见字，竖直方向对不上就丢掉。 */
+function pointerSeed(view: EditorView, x: number, y: number): number | null {
+    const near = (pos: number | null): number | null => {
+        if (pos == null || !Number.isFinite(pos)) {
             return null;
         }
-        const cached = cache.get(pos);
-        if (cached !== undefined) {
-            return cached;
+        const doc = view.state.doc;
+        if (!doc.length) {
+            return null;
         }
-        const left = rowLeft(view, pos, y);
-        cache.set(pos, left);
-        return left;
-    };
-    const scan = (from: number, to: number, into: BoundaryHit | null): BoundaryHit | null => {
-        let best = into;
-        const start = Math.max(line.from, from);
-        const end = Math.min(line.to, to);
-        for (let pos = start; pos <= end; pos++) {
-            const left = leftOf(pos);
-            if (left == null) {
-                continue;
+        const clamped = Math.max(0, Math.min(doc.length, pos));
+        const line = doc.lineAt(Math.min(clamped, doc.length));
+        const start = Math.max(line.from, Math.min(line.to - 1, clamped));
+        const at = (p: number) => (p >= line.from && p < line.to ? glyphBox(view, p) : null);
+        const direct = at(start);
+        if (direct && glyphOnRow(direct, y)) {
+            return start;
+        }
+        let otherRow = 0;
+        const span = line.to - line.from;
+        for (let d = 1; d <= span; d++) {
+            let sawOther = false;
+            for (const p of [start - d, start + d]) {
+                const box = at(p);
+                if (!box) {
+                    continue;
+                }
+                if (glyphOnRow(box, y)) {
+                    return p;
+                }
+                sawOther = true;
             }
-            best = preferBoundary(best, pos, left, x);
-        }
-        return best;
-    };
-
-    const around = 4;
-    const start = Math.max(line.from, clamped - around);
-    const end = Math.min(line.to, clamped + around);
-    let best = scan(start, end, null);
-    if (best && best.pos > start && best.pos < end) {
-        return best.pos;
-    }
-
-    let anchor = best?.pos ?? clamped;
-    for (let n = 0, step = 8; n < 80; n++, step += 8) {
-        let seen = false;
-        for (const pos of [clamped + step, clamped - step]) {
-            const left = leftOf(pos);
-            if (left == null) {
-                continue;
+            if (sawOther) {
+                otherRow++;
             }
-            seen = true;
-            best = preferBoundary(best, pos, left, x);
-            anchor = best.pos;
+            if (otherRow > 4 && d > 40) {
+                return null;
+            }
         }
-        if (!seen && n > 6) {
-            break;
-        }
-        if (best && best.dx <= 1 && n > 0) {
-            break;
-        }
-    }
-    best = scan(anchor - 12, anchor + 12, best);
-    return best ? best.pos : clamped;
+        return null;
+    };
+    return near(posFromCaret(view, x, y)) ?? near(view.posAtCoords({ x, y }, false));
 }
 
 /**
- * 指针下的文档位置。
- * 先看可见文字（向里收要读到高亮内部），再用坐标兜底。
- * 竖直方向对不上的结果丢掉，避免 posAtCoords 在文档上方时返回 0，把手跳到文首。
+ * 当前视觉行上每个可见字的左缘，再加行尾那一条右缘。
+ * 标签没有字形，不会占一个光标位；相邻的字不会被并成一个。
  */
-function docPosAtPointer(view: EditorView, x: number, y: number): number | null {
-    const score = (seed: number): BoundaryHit | null => {
-        if (!posNearPointer(view, seed, y)) {
-            return null;
-        }
-        const pos = nearestBoundary(view, seed, x, y);
-        const left = rowLeft(view, pos, y);
-        if (left == null) {
-            return null;
-        }
-        return { pos, left, dx: Math.abs(left - x) };
-    };
-    let best: BoundaryHit | null = null;
-    const caret = posFromCaret(view, x, y);
-    if (caret != null) {
-        best = score(caret);
-    }
-    if (!best || best.dx > 24) {
-        const rough = view.posAtCoords({ x, y }, false);
-        if (rough != null) {
-            const alt = score(rough);
-            if (alt && (!best || alt.dx < best.dx)) {
-                best = alt;
+function stopsForRow(view: EditorView, seed: number, y: number): { key: string; stops: CaretStop[] } {
+    const doc = view.state.doc;
+    const line = doc.lineAt(Math.max(0, Math.min(seed, doc.length)));
+    let origin = -1;
+    const span = line.to - line.from;
+    let missed = 0;
+    for (let d = 0; d <= span; d++) {
+        const candidates = d === 0 ? [Math.min(line.to - 1, Math.max(line.from, seed))] : [seed - d, seed + d];
+        let sawOff = false;
+        for (const pos of candidates) {
+            if (pos < line.from || pos >= line.to) {
+                continue;
             }
+            const box = glyphBox(view, pos);
+            if (!box) {
+                continue;
+            }
+            if (glyphOnRow(box, y)) {
+                origin = pos;
+                break;
+            }
+            sawOff = true;
+        }
+        if (origin >= 0) {
+            break;
+        }
+        if (sawOff) {
+            missed++;
+        }
+        if (missed > 3 && d > 24) {
+            break;
         }
     }
-    return best ? best.pos : null;
+    if (origin < 0) {
+        return { key: "", stops: [] };
+    }
+    const originBox = glyphBox(view, origin);
+    let from = origin;
+    for (let pos = origin - 1; pos >= line.from; pos--) {
+        const box = glyphBox(view, pos);
+        if (!box) {
+            continue;
+        }
+        if (!glyphOnRow(box, y)) {
+            break;
+        }
+        from = pos;
+    }
+    let to = origin;
+    let lastBox = originBox;
+    for (let pos = origin + 1; pos < line.to; pos++) {
+        const box = glyphBox(view, pos);
+        if (!box) {
+            continue;
+        }
+        if (!glyphOnRow(box, y)) {
+            break;
+        }
+        to = pos;
+        lastBox = box;
+    }
+    const stops: CaretStop[] = [];
+    let prevX = Number.NaN;
+    for (let pos = from; pos <= to; pos++) {
+        const box = pos === origin ? originBox : pos === to ? lastBox : glyphBox(view, pos);
+        const measured = box && glyphOnRow(box, y) ? box : glyphBox(view, pos);
+        if (!measured || !glyphOnRow(measured, y)) {
+            continue;
+        }
+        if (stops.length && Math.abs(measured.left - prevX) < 0.5) {
+            stops[stops.length - 1].pos = pos;
+            continue;
+        }
+        stops.push({ pos, x: measured.left, top: measured.top, bottom: measured.bottom });
+        prevX = measured.left;
+        if (pos === to) {
+            stops.push({
+                pos: pos + 1,
+                x: measured.right,
+                top: measured.top,
+                bottom: measured.bottom,
+            });
+        }
+    }
+    const key = `${line.from}:${from}:${Math.round(originBox?.top ?? y)}`;
+    return { key, stops };
 }
 
-function slideActiveGrip(view: EditorView, edge: "start" | "end", boundaryPos: number): void {
-    if (!session || session.grips.length < 2) {
-        return;
+/** 高亮正文里的每个字都留一个光标位，避免行扫描在标签处停住后左边无法向右收。 */
+function withInnerGlyphs(view: EditorView, ann: AnnotationSpan, y: number, stops: CaretStop[]): CaretStop[] {
+    const have = new Set(stops.map((stop) => stop.pos));
+    const next = stops.slice();
+    for (let pos = ann.innerFrom; pos < ann.innerTo; pos++) {
+        if (have.has(pos)) {
+            continue;
+        }
+        const box = glyphBox(view, pos);
+        if (!box || !glyphOnRow(box, y)) {
+            continue;
+        }
+        next.push({ pos, x: box.left, top: box.top, bottom: box.bottom });
+        have.add(pos);
     }
-    const el = session.grips[edge === "start" ? 0 : 1];
-    if (el.style.display === "none") {
-        return;
+    next.sort((a, b) => a.x - b.x || a.pos - b.pos);
+    const unique: CaretStop[] = [];
+    for (const stop of next) {
+        const prev = unique[unique.length - 1];
+        if (prev && Math.abs(prev.x - stop.x) < 0.5) {
+            if (stop.pos > prev.pos) {
+                prev.pos = stop.pos;
+            }
+            continue;
+        }
+        unique.push({ ...stop });
     }
-    const here = view.coordsAtPos(boundaryPos, edge === "start" ? 1 : -1);
-    if (!here) {
-        return;
-    }
-    const boundary = edge === "start" ? here.left : Math.max(here.left, here.right);
-    const neighborAt = boundaryPos + (edge === "start" ? 1 : -1);
-    const neighbor =
-        neighborAt >= 0 && neighborAt <= view.state.doc.length
-            ? view.coordsAtPos(neighborAt, 1) ?? view.coordsAtPos(neighborAt, -1)
-            : null;
-    const neighborX = neighbor ? (edge === "start" ? neighbor.left : Math.max(neighbor.left, neighbor.right)) : boundary;
-    const limit = Math.max(8, Math.min(28, Math.abs(neighborX - boundary) + 2));
-    const tracked = Math.max(boundary - limit, Math.min(boundary + limit, lastX));
-    const width = 3;
-    el.style.left = `${Math.round(edge === "start" ? tracked - width : tracked)}px`;
+    return unique;
 }
 
-function applyDragPointer(): void {
+function closestStop(stops: CaretStop[], x: number): CaretStop | null {
+    let best: CaretStop | null = null;
+    let bestDx = Infinity;
+    for (const stop of stops) {
+        const dx = Math.abs(stop.x - x);
+        if (dx < bestDx) {
+            best = stop;
+            bestDx = dx;
+        }
+    }
+    return best;
+}
+
+/**
+ * 第一步：拖动只移动光标，逐字落在可见文字上，并记住范围。
+ * 高亮文本要等松开后再改。
+ */
+function trackDragCursor(): void {
     const drag = session?.resize;
     const cm = session?.cm;
-    if (!drag || !cm || !session) {
+    if (!drag || !cm || !session || session.grips.length < 2) {
         return;
     }
-    const pos = docPosAtPointer(cm, lastX, lastY);
-    if (pos == null) {
-        return;
-    }
-    const next = snapUnwrappedIndex(drag.doc, drag.ann, unwrapPos(drag.ann, pos), drag.edge);
-    if (drag.edge === "start") {
-        const ns = clampNum(next, drag.minNs, drag.ne - 1);
-        if (ns !== drag.ns) {
-            drag.ns = ns;
-            paintDrag();
+    const onCachedRow =
+        drag.stops.length > 0 &&
+        drag.stops.some((stop) => lastY >= stop.top - 8 && lastY <= stop.bottom + 8);
+    if (!onCachedRow) {
+        const seed = pointerSeed(cm, lastX, lastY);
+        if (seed == null) {
+            return;
         }
-        slideActiveGrip(cm, "start", startDocPos(drag.ann, drag.ns));
+        const built = stopsForRow(cm, seed, lastY);
+        const stops = withInnerGlyphs(cm, drag.ann, lastY, built.stops);
+        if (!stops.length) {
+            return;
+        }
+        drag.stops = stops;
+        drag.stopsKey = built.key || "row";
+    }
+    const hit = closestStop(drag.stops, lastX);
+    if (!hit) {
         return;
     }
-    const ne = clampNum(next, drag.ns + 1, drag.maxNe);
-    if (ne !== drag.ne) {
-        drag.ne = ne;
-        paintDrag();
+    const next = snapUnwrappedIndex(drag.doc, drag.ann, unwrapPos(drag.ann, hit.pos), drag.edge);
+    if (drag.edge === "start") {
+        drag.ns = clampNum(next, drag.minNs, drag.ne - 1);
+    } else {
+        drag.ne = clampNum(next, drag.ns + 1, drag.maxNe);
     }
-    slideActiveGrip(cm, "end", endDocPos(drag.ann, drag.ne));
+    paintDrag();
+    const grip = session.grips[drag.edge === "start" ? 0 : 1];
+    placeGripElement(grip, { left: hit.x, right: hit.x, top: hit.top, bottom: hit.bottom }, drag.edge);
 }
 
 function onPointerMove(ev: PointerEvent): void {
@@ -2094,12 +2152,13 @@ function onPointerMove(ev: PointerEvent): void {
     if (!session?.resize || !session.cm) {
         return;
     }
+    dragMoved = true;
     if (dragFrame) {
         return;
     }
     dragFrame = window.requestAnimationFrame(() => {
         dragFrame = 0;
-        applyDragPointer();
+        trackDragCursor();
     });
 }
 
@@ -2108,7 +2167,10 @@ function onPointerUp(): void {
         return;
     }
     cancelDragFrame();
-    applyDragPointer();
+    if (dragMoved) {
+        trackDragCursor();
+    }
+    dragMoved = false;
     endResize(true);
 }
 
@@ -2117,6 +2179,7 @@ function onPointerCancel(): void {
         return;
     }
     cancelDragFrame();
+    dragMoved = false;
     endResize(false);
 }
 
@@ -2156,6 +2219,7 @@ noteAnnotationDocChanged = (view: EditorView): void => {
     }
     if (session.resize) {
         cancelDragFrame();
+        dragMoved = false;
         session.resize = null;
         clearPreviews();
         document.body.classList.remove("fh-anno-resizing");
